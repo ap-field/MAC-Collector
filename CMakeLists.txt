@@ -13,20 +13,16 @@ pkg_check_modules(PCAP    REQUIRED libpcap)
 pkg_check_modules(SQLITE3 REQUIRED sqlite3)
 
 add_executable(mac-collector
-    main.cpp
-
-    mac.cpp        mac.h
-    parser.cpp     parser.h
-    db.cpp         db.h
-    capture.cpp    capture.h
-    ui.cpp         ui.h
-
-    radiotaphdr.h
-    dot11hdr.h
+    src/main.cpp
+    src/mac.cpp
+    src/parser.cpp
+    src/db.cpp
+    src/capture.cpp
+    src/ui.cpp
 )
 
 target_include_directories(mac-collector PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${PCAP_INCLUDE_DIRS}
     ${SQLITE3_INCLUDE_DIRS}
 )

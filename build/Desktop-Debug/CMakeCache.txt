@@ -1499,7 +1499,7 @@ Vulkan_INCLUDE_DIR-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: Vulkan_LIBRARY
 Vulkan_LIBRARY-ADVANCED:INTERNAL=1
 //CMAKE_INSTALL_PREFIX during last run
-_GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=/tmp
+_GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=/usr/local
 __pkg_config_arguments_PCAP:INTERNAL=REQUIRED;libpcap
 __pkg_config_arguments_SQLITE3:INTERNAL=REQUIRED;sqlite3
 __pkg_config_checked_PCAP:INTERNAL=1
