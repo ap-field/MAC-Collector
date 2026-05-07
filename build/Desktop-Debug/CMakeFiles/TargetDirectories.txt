@@ -1,0 +1,5 @@
+/home/kali/Desktop/MAC-Collector/build/Desktop-Debug/CMakeFiles/mac-collector.dir
+/home/kali/Desktop/MAC-Collector/build/Desktop-Debug/CMakeFiles/edit_cache.dir
+/home/kali/Desktop/MAC-Collector/build/Desktop-Debug/CMakeFiles/rebuild_cache.dir
+/home/kali/Desktop/MAC-Collector/build/Desktop-Debug/CMakeFiles/mac-collector_autogen_timestamp_deps.dir
+/home/kali/Desktop/MAC-Collector/build/Desktop-Debug/CMakeFiles/mac-collector_autogen.dir

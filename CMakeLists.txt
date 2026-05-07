@@ -21,8 +21,8 @@ add_executable(mac-collector
     capture.cpp    capture.h
     ui.cpp         ui.h
 
-    Radiotaphdr.h
-    Dot11hdr.h
+    radiotaphdr.h
+    dot11hdr.h
 )
 
 target_include_directories(mac-collector PRIVATE

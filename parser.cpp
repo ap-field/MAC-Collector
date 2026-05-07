@@ -1,6 +1,6 @@
 #include "parser.h"
-#include "Radiotaphdr.h"
-#include "Dot11hdr.h"
+#include "radiotaphdr.h"
+#include "dot11hdr.h"
 
 #include <cstring>
 
