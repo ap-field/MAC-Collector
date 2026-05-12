@@ -4,6 +4,7 @@
 #include <pcap.h>
 
 #include <cstring>
+#include <QDebug>
 
 CaptureWorker::CaptureWorker(QObject* parent)
     : QObject(parent), parser_(-20), db_(nullptr), stop_(false) {}
@@ -38,7 +39,7 @@ void CaptureWorker::run() {
         return;
     }
 
-    const char* filter =
+    const char* filter = //ddelete
         "type mgt subtype auth or "
         "type mgt subtype assoc-req or "
         "type mgt subtype reassoc-req";
@@ -51,19 +52,22 @@ void CaptureWorker::run() {
         emit finished();
         return;
     }
-    if (pcap_setfilter(pcap, &bpf) != 0) {
-        emit errorOccurred(QString("pcap_setfilter 실패: %1").arg(pcap_geterr(pcap)));
-        pcap_freecode(&bpf);
-        pcap_close(pcap);
-        emit finished();
-        return;
-    }
+    // if (pcap_setfilter(pcap, &bpf) != 0) {
+    //     emit errorOccurred(QString("pcap_setfilter 실패: %1").arg(pcap_geterr(pcap)));
+    //     pcap_freecode(&bpf);
+    //     pcap_close(pcap);
+    //     emit finished();
+    //     return;
+    // }
     pcap_freecode(&bpf);
 
     while (!stop_.load()) {
         pcap_pkthdr*   hdr  = nullptr;
         const uint8_t* data = nullptr;
-        int rc = pcap_next_ex(pcap, &hdr, &data);
+        qDebug() << "bef next";
+
+        int rc = pcap_next_ex(pcap, &hdr, &data); //
+        qDebug() << "after next" << rc;
         if (rc == 0) continue;     // timeout
         if (rc < 0) break;          // error / EOF
 

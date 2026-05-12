@@ -12,7 +12,7 @@ bool extractRadiotap(const uint8_t* data, int len,
 {
     if (len < 8) return false;
 
-    RadiotapHdr rt;
+    RadiotapHeader rt;
     std::memcpy(&rt, data, sizeof(rt));
     if (rt.it_version != 0) return false;
 
@@ -88,10 +88,10 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
     if (rssi < rssiThreshold_)                      return r;
     if (len < rtLen + 16)                           return r;
 
-    Dot11Hdr hdr;
+    Dot11Header hdr;
     std::memcpy(&hdr, data + rtLen, sizeof(hdr));
 
-    uint16_t fc      = hdr.frame_control;
+    uint16_t fc      = hdr.frameControl;
     uint8_t  type    = (fc >> 2) & 0x03;   // 0=mgmt
     uint8_t  subtype = (fc >> 4) & 0x0F;
 

@@ -14,8 +14,8 @@ namespace {
 
 struct CliOpts {
     std::string iface;
-    int         rssiThreshold = -20;
-    std::string dbPath        = "allowlist.db";
+    int         rssiThreshold = -60;
+    std::string dbPath        = "MAC_address.db";
 };
 
 void printUsage(const char* prog) {
@@ -23,7 +23,7 @@ void printUsage(const char* prog) {
                  "usage: %s <iface> [-t <rssi_dbm>] [--db <path>]\n"
                  "  iface         monitor mode interface (e.g. wlan0mon)\n"
                  "  -t <dbm>      RSSI threshold (default -20)\n"
-                 "  --db <path>   SQLite DB path (default allowlist.db)\n",
+                 "  --db <path>   SQLite DB path (default MAC_address.db)\n",
                  prog);
 }
 

@@ -5,6 +5,7 @@
 #include <QComboBox>
 #include <QFileDialog>
 #include <QFormLayout>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -20,30 +21,35 @@
 // ────────── Phase1Widget ──────────
 Phase1Widget::Phase1Widget(QWidget* parent) : QWidget(parent) {
     auto* root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    auto* title = new QLabel("Wi-Fi 를 껐다 켜보세요!");
-    QFont f = title->font(); f.setPointSize(20); f.setBold(true);
-    title->setFont(f); title->setAlignment(Qt::AlignCenter);
-    root->addWidget(title);
-
-    table_ = new QTableWidget(0, 3, this);
-    table_->setHorizontalHeaderLabels({"MAC", "RSSI", "동작"});
+    table_ = new QTableWidget(0, 4, this);
+    table_->setHorizontalHeaderLabels({"MAC 주소", "제조사", "신호", ""});
     table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    table_->verticalHeader()->setDefaultSectionSize(50);
+    table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    table_->horizontalHeader()->setHighlightSections(false);
+    table_->horizontalHeader()->setFixedHeight(36);
+    table_->verticalHeader()->setVisible(false);
+    table_->verticalHeader()->setDefaultSectionSize(54);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionMode(QAbstractItemView::NoSelection);
-    root->addWidget(table_, 1);
+    table_->setShowGrid(false);
+    table_->setFocusPolicy(Qt::NoFocus);
+    table_->setStyleSheet(
+        "QTableWidget { background: white; border: none; gridline-color: transparent; }"
+        "QHeaderView::section { background: #F3F4F6; color: #374151;"
+        "  padding: 8px 12px; border: none;"
+        "  border-bottom: 1px solid #E5E7EB;"
+        "  font-weight: 700; font-size: 10pt; }"
+        "QTableWidget::item { padding: 8px 12px;"
+        "  border-bottom: 1px solid #F3F4F6; }"
+        "QTableWidget::item:hover { background: #F9FAFB; }"
+        );
 
-    auto* bottom = new QHBoxLayout();
-    bottom->addStretch();
-    adminBtn_ = new QPushButton("관리자 모드");
-    adminBtn_->setMinimumSize(140, 44);
-    bottom->addWidget(adminBtn_);
-    root->addLayout(bottom);
-
-    connect(adminBtn_, &QPushButton::clicked, this, &Phase1Widget::adminRequested);
+    root->addWidget(table_);
 }
 
 void Phase1Widget::addCandidate(const QString& macStr, int rssi) {
@@ -53,24 +59,69 @@ void Phase1Widget::addCandidate(const QString& macStr, int rssi) {
     }
     int row = table_->rowCount();
     table_->insertRow(row);
-    table_->setItem(row, 0, new QTableWidgetItem(macStr));
-    table_->setItem(row, 1, new QTableWidgetItem(QString("%1 dBm").arg(rssi)));
 
-    auto* btn = new QPushButton("등록하기");
-    btn->setMinimumSize(120, 40);
+    // MAC (monospace, bold)
+    auto* macItem = new QTableWidgetItem(macStr);
+    QFont mono("Monospace");
+    mono.setStyleHint(QFont::TypeWriter);
+    mono.setPointSize(12);
+    mono.setBold(true);
+    macItem->setFont(mono);
+    macItem->setForeground(QColor("#1F2937"));
+    table_->setItem(row, 0, macItem);
+
+    // Vendor (하드코딩 — 추후 OUI 매핑으로 교체)
+    auto* vendorItem = new QTableWidgetItem("Samsung Electronics");
+    vendorItem->setForeground(QColor("#4B5563"));
+    table_->setItem(row, 1, vendorItem);
+
+    // RSSI (색상 코딩)
+    auto* rssiItem = new QTableWidgetItem(QString("%1 dBm").arg(rssi));
+    QFont rssiFont = rssiItem->font();
+    rssiFont.setBold(true);
+    rssiItem->setFont(rssiFont);
+    if (rssi >= -50)      rssiItem->setForeground(QColor("#10B981")); // 강
+    else if (rssi >= -75) rssiItem->setForeground(QColor("#F59E0B")); // 중
+    else                  rssiItem->setForeground(QColor("#6B7280")); // 약
+    table_->setItem(row, 2, rssiItem);
+
+    // 등록 버튼
+    auto* btn = new QPushButton("등록");
+    btn->setMinimumSize(80, 36);
+    btn->setCursor(Qt::PointingHandCursor);
     btn->setProperty("mac", macStr);
+    btn->setStyleSheet(
+        "QPushButton { background: #2563EB; color: white; border: none;"
+        "  border-radius: 4px; padding: 6px 18px;"
+        "  font-weight: 600; font-size: 11pt; }"
+        "QPushButton:hover { background: #1D4ED8; }"
+        "QPushButton:pressed { background: #1E40AF; }"
+        );
     connect(btn, &QPushButton::clicked, this, &Phase1Widget::onRegisterButtonClicked);
-    table_->setCellWidget(row, 2, btn);
+    table_->setCellWidget(row, 3, btn);
+
+    emit candidateCountChanged(table_->rowCount());
 }
 
 void Phase1Widget::removeCandidate(const QString& macStr) {
     for (int row = 0; row < table_->rowCount(); ++row) {
         QTableWidgetItem* it = table_->item(row, 0);
-        if (it && it->text() == macStr) { table_->removeRow(row); return; }
+        if (it && it->text() == macStr) {
+            table_->removeRow(row);
+            emit candidateCountChanged(table_->rowCount());
+            return;
+        }
     }
 }
 
-void Phase1Widget::clearCandidates() { table_->setRowCount(0); }
+void Phase1Widget::clearCandidates() {
+    table_->setRowCount(0);
+    emit candidateCountChanged(0);
+}
+
+int Phase1Widget::candidateCount() const {
+    return table_->rowCount();
+}
 
 void Phase1Widget::onRegisterButtonClicked() {
     auto* btn = qobject_cast<QPushButton*>(sender());
@@ -82,40 +133,96 @@ void Phase1Widget::onRegisterButtonClicked() {
 // ────────── Phase2Widget ──────────
 Phase2Widget::Phase2Widget(QWidget* parent) : QWidget(parent) {
     auto* root = new QVBoxLayout(this);
-
-    auto* title = new QLabel("등록 정보 입력");
-    QFont f = title->font(); f.setPointSize(18); f.setBold(true);
-    title->setFont(f); title->setAlignment(Qt::AlignCenter);
-    root->addWidget(title);
+    root->setContentsMargins(40, 30, 40, 30);
 
     macLabel_ = new QLabel();
-    macLabel_->setStyleSheet("font-size: 16pt; padding: 8px;");
     macLabel_->setAlignment(Qt::AlignCenter);
+    macLabel_->setStyleSheet(
+        "background: #F3F4F6; color: #1F2937;"
+        "font-family: monospace; font-size: 16pt; font-weight: 600;"
+        "padding: 14px; border-radius: 6px;"
+        );
     root->addWidget(macLabel_);
+    root->addSpacing(20);
 
     auto* form = new QFormLayout();
-    nameEdit_  = new QLineEdit(); nameEdit_->setMinimumHeight(44);
-    phoneEdit_ = new QLineEdit(); phoneEdit_->setMinimumHeight(44);
-    typeCombo_ = new QComboBox(); typeCombo_->setMinimumHeight(44);
-    typeCombo_->addItems({"notebook", "phone", "tablet", "ap", "iot", "other"});
-    form->addRow("이름:",      nameEdit_);
-    form->addRow("전화번호:",  phoneEdit_);
-    form->addRow("장비 유형:", typeCombo_);
-    root->addLayout(form);
+    form->setSpacing(14);
+    form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
+    const char* inputStyle =
+        "QLineEdit { padding: 8px 12px; font-size: 14pt;"
+        "  border: 1px solid #D1D5DB; border-radius: 4px;"
+        "  background: white; color: #1F2937; }"
+        "QLineEdit:focus { border: 2px solid #2563EB; }";
+
+    nameEdit_  = new QLineEdit();
+    phoneEdit_ = new QLineEdit();
+    typeCombo_ = new QComboBox();
+
+    nameEdit_->setMinimumHeight(44);
+    phoneEdit_->setMinimumHeight(44);
+    typeCombo_->setMinimumHeight(44);
+
+    nameEdit_->setStyleSheet(inputStyle);
+    phoneEdit_->setStyleSheet(inputStyle);
+    typeCombo_->setStyleSheet(
+        "QComboBox { padding: 8px 12px; font-size: 14pt;"
+        "  border: 1px solid #000000; border-radius: 4px; background: white; }"
+        );
+    typeCombo_->addItems({"notebook", "phone", "tablet", "ap", "iot", "other"});
+
+    auto* nameLbl  = new QLabel("이름:");
+    auto* phoneLbl = new QLabel("전화번호:");
+    auto* typeLbl  = new QLabel("장비 유형:");
+    const char* lblStyle = "font-size: 12pt; font-weight: 600; color: #1F2937;";
+    nameLbl->setStyleSheet(lblStyle);
+    phoneLbl->setStyleSheet(lblStyle);
+    typeLbl->setStyleSheet(lblStyle);
+
+    form->addRow(nameLbl,  nameEdit_);
+    form->addRow(phoneLbl, phoneEdit_);
+    form->addRow(typeLbl,  typeCombo_);
+
+    root->addLayout(form);
     root->addStretch();
 
     auto* btnRow = new QHBoxLayout();
-    auto* cancelBtn = new QPushButton("취소");
-    auto* okBtn     = new QPushButton("확인");
-    cancelBtn->setMinimumSize(140, 50);
-    okBtn->setMinimumSize(140, 50);
-    btnRow->addWidget(cancelBtn);
-    btnRow->addWidget(okBtn);
+    cancelBtn_ = new QPushButton("취소");
+    okBtn_     = new QPushButton("확인");
+    cancelBtn_->setMinimumSize(140, 50);
+    okBtn_->setMinimumSize(140, 50);
+    cancelBtn_->setCursor(Qt::PointingHandCursor);
+    okBtn_->setCursor(Qt::PointingHandCursor);
+
+    cancelBtn_->setStyleSheet(
+        "QPushButton { background: white; color: #4B5563;"
+        "  border: 1px solid #D1D5DB; border-radius: 6px;"
+        "  padding: 10px 24px; font-size: 13pt; font-weight: 600; }"
+        "QPushButton:hover { background: #F3F4F6; }"
+        );
+    okBtn_->setStyleSheet(
+        "QPushButton { background: #2563EB; color: white; border: none;"
+        "  border-radius: 6px; padding: 10px 24px;"
+        "  font-size: 13pt; font-weight: 700; }"
+        "QPushButton:hover { background: #1D4ED8; }"
+        "QPushButton:pressed { background: #1E40AF; }"
+        );
+    btnRow->addWidget(cancelBtn_);
+    btnRow->addWidget(okBtn_);
     root->addLayout(btnRow);
 
-    connect(okBtn,     &QPushButton::clicked, this, &Phase2Widget::onConfirm);
-    connect(cancelBtn, &QPushButton::clicked, this, &Phase2Widget::onCancel);
+    // Tab 순서
+    setTabOrder(nameEdit_, phoneEdit_);
+    setTabOrder(phoneEdit_, typeCombo_);
+    setTabOrder(typeCombo_, okBtn_);
+    setTabOrder(okBtn_, cancelBtn_);
+
+    connect(okBtn_,     &QPushButton::clicked, this, &Phase2Widget::onConfirm);
+    connect(cancelBtn_, &QPushButton::clicked, this, &Phase2Widget::onCancel);
+
+    // Enter 처리: 이름→전화번호 포커스, 전화번호 Enter→확인
+    connect(nameEdit_,  &QLineEdit::returnPressed, phoneEdit_, qOverload<>(&QWidget::setFocus));
+    connect(phoneEdit_, &QLineEdit::returnPressed, this,       &Phase2Widget::onConfirm);
 }
 
 void Phase2Widget::setTargetMac(const QString& macStr) {
@@ -123,6 +230,11 @@ void Phase2Widget::setTargetMac(const QString& macStr) {
     nameEdit_->clear();
     phoneEdit_->clear();
     typeCombo_->setCurrentIndex(0);
+}
+
+void Phase2Widget::focusFirstInput() {
+    nameEdit_->setFocus();
+    nameEdit_->selectAll();
 }
 
 void Phase2Widget::onConfirm() {
@@ -133,6 +245,8 @@ void Phase2Widget::onConfirm() {
 
     if (name.isEmpty() || phone.isEmpty()) {
         QMessageBox::warning(this, "입력 오류", "이름과 전화번호를 입력하세요.");
+        if (name.isEmpty())  nameEdit_->setFocus();
+        else                 phoneEdit_->setFocus();
         return;
     }
     emit confirmed(mac, name, phone, type);
@@ -145,13 +259,27 @@ Phase3Widget::Phase3Widget(QWidget* parent) : QWidget(parent) {
     auto* root = new QVBoxLayout(this);
     root->addStretch();
 
-    msgLabel_ = new QLabel("등록 완료!");
-    QFont f = msgLabel_->font(); f.setPointSize(28); f.setBold(true);
-    msgLabel_->setFont(f); msgLabel_->setAlignment(Qt::AlignCenter);
+    auto* check = new QLabel("✓");
+    QFont cf = check->font();
+    cf.setPointSize(80);
+    cf.setBold(true);
+    check->setFont(cf);
+    check->setAlignment(Qt::AlignCenter);
+    check->setStyleSheet("color: #10B981;");
+    root->addWidget(check);
+
+    msgLabel_ = new QLabel("성공적으로 등록되었습니다");
+    QFont mf = msgLabel_->font();
+    mf.setPointSize(20);
+    mf.setBold(true);
+    msgLabel_->setFont(mf);
+    msgLabel_->setAlignment(Qt::AlignCenter);
+    msgLabel_->setStyleSheet("color: #1F2937; padding: 16px;");
     root->addWidget(msgLabel_);
 
-    auto* sub = new QLabel("3초 후 자동으로 돌아갑니다.");
+    auto* sub = new QLabel("3초 후 자동으로 돌아갑니다");
     sub->setAlignment(Qt::AlignCenter);
+    sub->setStyleSheet("color: #6B7280; font-size: 12pt;");
     root->addWidget(sub);
 
     root->addStretch();
@@ -163,66 +291,149 @@ void Phase3Widget::showCompleted() {
 
 // ────────── AdminPage ──────────
 AdminPage::AdminPage(Db* db, QWidget* parent) : QWidget(parent), db_(db) {
-    auto* root = new QVBoxLayout(this);
+    // 페이지 자체 배경 + 자식 위젯들이 안 닿을 글로벌 디폴트
+    setObjectName("adminPage");
+    setStyleSheet(
+        "#adminPage { background: white; }"
+        "QLabel     { color: #000000; }"
+        "QLineEdit  { background: white; color: #000000;"
+        "             border: 1px solid #D1D5DB; border-radius: 4px;"
+        "             padding: 6px 10px; }"
+        "QLineEdit:focus { border: 2px solid #2563EB; }"
+        "QTableWidget { background: white; color: #000000; border: none;"
+        "               gridline-color: #F3F4F6; }"
+        "QTableWidget::item          { color: #000000; padding: 8px 10px;"
+        "                              border-bottom: 1px solid #F3F4F6; }"
+        "QTableWidget::item:selected { background: #DBEAFE; color: #1E3A8A; }"
+        "QHeaderView::section { background: #F3F4F6; color: #000000;"
+        "                       padding: 8px 10px; border: none;"
+        "                       border-bottom: 1px solid #E5E7EB;"
+        "                       font-weight: 700; font-size: 10pt; }"
+        "QTabWidget::pane { background: white; border: 1px solid #E5E7EB;"
+        "                   border-radius: 4px; top: -1px; }"
+        "QTabBar::tab   { background: #F3F4F6; color: #000000;"
+        "                 padding: 10px 22px;"
+        "                 border: 1px solid #E5E7EB; border-bottom: none;"
+        "                 border-top-left-radius: 4px;"
+        "                 border-top-right-radius: 4px;"
+        "                 font-size: 11pt; font-weight: 500;"
+        "                 margin-right: 2px; }"
+        "QTabBar::tab:selected { background: white; font-weight: 700; }"
+        "QTabBar::tab:hover:!selected { background: #E5E7EB; }"
+        );
 
+    auto* root = new QVBoxLayout(this);
+    root->setContentsMargins(16, 16, 16, 16);
+    root->setSpacing(12);
+
+    // ─── 검색 영역 ───
     auto* topRow = new QHBoxLayout();
     searchEdit_ = new QLineEdit();
     searchEdit_->setPlaceholderText("MAC / 이름 / 전화번호로 검색");
     searchEdit_->setMinimumHeight(40);
+
     searchBtn_ = new QPushButton("검색");
     searchBtn_->setMinimumSize(100, 40);
+    searchBtn_->setCursor(Qt::PointingHandCursor);
+    searchBtn_->setStyleSheet(
+        "QPushButton { background: #2563EB; color: white; border: none;"
+        "  border-radius: 4px; padding: 8px 18px;"
+        "  font-size: 11pt; font-weight: 600; }"
+        "QPushButton:hover  { background: #1D4ED8; }"
+        "QPushButton:pressed{ background: #1E40AF; }"
+        );
+
     topRow->addWidget(searchEdit_, 1);
     topRow->addWidget(searchBtn_);
     root->addLayout(topRow);
 
+    // ─── 탭 + 테이블 ───
     tabs_ = new QTabWidget();
 
     stationTable_ = new QTableWidget(0, 4);
     stationTable_->setHorizontalHeaderLabels({"MAC", "이름", "전화번호", "유형"});
     stationTable_->horizontalHeader()->setStretchLastSection(true);
+    stationTable_->horizontalHeader()->setHighlightSections(false);
     stationTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     stationTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    stationTable_->setShowGrid(false);
+    stationTable_->verticalHeader()->setVisible(false);
     tabs_->addTab(stationTable_, "Station");
 
     apTable_ = new QTableWidget(0, 2);
     apTable_->setHorizontalHeaderLabels({"MAC", "Other"});
     apTable_->horizontalHeader()->setStretchLastSection(true);
+    apTable_->horizontalHeader()->setHighlightSections(false);
     apTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     apTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    apTable_->setShowGrid(false);
+    apTable_->verticalHeader()->setVisible(false);
     tabs_->addTab(apTable_, "AP");
 
     userTable_ = new QTableWidget(0, 2);
     userTable_->setHorizontalHeaderLabels({"이름", "전화번호"});
     userTable_->horizontalHeader()->setStretchLastSection(true);
+    userTable_->horizontalHeader()->setHighlightSections(false);
     userTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     userTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    userTable_->setShowGrid(false);
+    userTable_->verticalHeader()->setVisible(false);
     tabs_->addTab(userTable_, "User");
 
     root->addWidget(tabs_, 1);
 
+    // ─── 하단 버튼 ───
     auto* btnRow = new QHBoxLayout();
     deleteBtn_ = new QPushButton("선택 삭제");
     exportBtn_ = new QPushButton("CSV Export");
-    backBtn_   = new QPushButton("뒤로");
+    backBtn_   = new QPushButton("← 뒤로");
     deleteBtn_->setMinimumSize(120, 44);
     exportBtn_->setMinimumSize(120, 44);
     backBtn_->setMinimumSize(120, 44);
+    deleteBtn_->setCursor(Qt::PointingHandCursor);
+    exportBtn_->setCursor(Qt::PointingHandCursor);
+    backBtn_->setCursor(Qt::PointingHandCursor);
+
+    const char* secondaryBtn =
+        "QPushButton { background: white; color: #000000;"
+        "  border: 1px solid #D1D5DB; border-radius: 4px;"
+        "  padding: 8px 18px; font-size: 11pt; font-weight: 600; }"
+        "QPushButton:hover   { background: #F3F4F6; border-color: #9CA3AF; }"
+        "QPushButton:pressed { background: #E5E7EB; }";
+
+    const char* dangerBtn =
+        "QPushButton { background: white; color: #DC2626;"
+        "  border: 1px solid #FCA5A5; border-radius: 4px;"
+        "  padding: 8px 18px; font-size: 11pt; font-weight: 600; }"
+        "QPushButton:hover   { background: #FEF2F2; border-color: #DC2626; }"
+        "QPushButton:pressed { background: #FEE2E2; }";
+
+    deleteBtn_->setStyleSheet(dangerBtn);
+    exportBtn_->setStyleSheet(secondaryBtn);
+    backBtn_->setStyleSheet(secondaryBtn);
+
     btnRow->addWidget(deleteBtn_);
     btnRow->addWidget(exportBtn_);
     btnRow->addStretch();
     btnRow->addWidget(backBtn_);
     root->addLayout(btnRow);
 
-    connect(searchBtn_, &QPushButton::clicked, this, &AdminPage::onSearch);
-    connect(deleteBtn_, &QPushButton::clicked, this, &AdminPage::onDeleteSelected);
-    connect(exportBtn_, &QPushButton::clicked, this, &AdminPage::onExportCsv);
-    connect(backBtn_,   &QPushButton::clicked, this, &AdminPage::onBack);
+    connect(searchBtn_,  &QPushButton::clicked,     this, &AdminPage::onSearch);
+    connect(searchEdit_, &QLineEdit::returnPressed, this, &AdminPage::onSearch);
+    connect(deleteBtn_,  &QPushButton::clicked,     this, &AdminPage::onDeleteSelected);
+    // connect(exportBtn_, &QPushButton::clicked,    this, &AdminPage::onExportCsv);  // 비활성 상태 유지
+    connect(backBtn_,    &QPushButton::clicked,     this, &AdminPage::onBack);
 }
 
 void AdminPage::refresh() {
     reloadStations("");
     reloadAps("");
     reloadUsers();
+}
+
+void AdminPage::focusSearch() {
+    searchEdit_->setFocus();
+    searchEdit_->selectAll();
 }
 
 void AdminPage::reloadStations(const QString& keyword) {
@@ -306,38 +517,55 @@ void AdminPage::onDeleteSelected() {
     }
 }
 
-void AdminPage::onExportCsv() {
-    if (!db_) return;
-    QString path = QFileDialog::getSaveFileName(this, "CSV 저장", "allowlist_export.csv", "CSV Files (*.csv)");
-    if (path.isEmpty()) return;
-    bool ok = db_->exportCsv(path.toStdString());
-    if (ok) QMessageBox::information(this, "Export", "내보내기 완료: " + path);
-    else    QMessageBox::warning(this, "Export", "내보내기 실패");
-}
+// void AdminPage::onExportCsv() {
+//     if (!db_) return;
+//     QString path = QFileDialog::getSaveFileName(this, "CSV 저장", "MAC_address_export.csv", "CSV Files (*.csv)");
+//     if (path.isEmpty()) return;
+//     bool ok = db_->exportCsv(path.toStdString());
+//     if (ok) QMessageBox::information(this, "Export", "내보내기 완료: " + path);
+//     else    QMessageBox::warning(this, "Export", "내보내기 실패");
+// }
 
 void AdminPage::onBack() { emit backRequested(); }
 
 // ────────── KioskWindow ──────────
 KioskWindow::KioskWindow(Db* db, QWidget* parent)
     : QMainWindow(parent), db_(db) {
-    setWindowTitle("WIPS Allowlist Collector");
-    resize(900, 600);
+    setWindowTitle("MAC Address Collector");
+    resize(960, 640);
 
-    stack_ = new QStackedWidget(this);
-    setCentralWidget(stack_);
+    // 메인 컨테이너
+    auto* central = new QWidget(this);
+    central->setStyleSheet("background: white;");
+    setCentralWidget(central);
 
+    auto* mainLayout = new QVBoxLayout(central);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
+
+    // 헤더
+    buildHeader();
+    mainLayout->addWidget(header_);
+
+    // 스택
+    stack_ = new QStackedWidget(central);
     p1_    = new Phase1Widget();
     p2_    = new Phase2Widget();
     p3_    = new Phase3Widget();
     admin_ = new AdminPage(db_);
-
     stack_->addWidget(p1_);
     stack_->addWidget(p2_);
     stack_->addWidget(p3_);
     stack_->addWidget(admin_);
+    mainLayout->addWidget(stack_, 1);
 
-    connect(p1_, &Phase1Widget::registerRequested, this, &KioskWindow::goPhase2);
-    connect(p1_, &Phase1Widget::adminRequested,    this, &KioskWindow::goAdmin);
+    // 상태바
+    buildStatusBar();
+    mainLayout->addWidget(statusBar_);
+
+    // 시그널 연결
+    connect(p1_, &Phase1Widget::registerRequested,     this, &KioskWindow::goPhase2);
+    connect(p1_, &Phase1Widget::candidateCountChanged, this, &KioskWindow::updateDeviceCount);
 
     connect(p2_, &Phase2Widget::confirmed, this, &KioskWindow::onPhase2Confirmed);
     connect(p2_, &Phase2Widget::canceled,  this, &KioskWindow::goPhase1);
@@ -346,24 +574,225 @@ KioskWindow::KioskWindow(Db* db, QWidget* parent)
 
     connect(admin_, &AdminPage::backRequested, this, &KioskWindow::goPhase1);
 
+    // 타이머
+    elapsedTimer_ = new QTimer(this);
+    elapsedTimer_->setInterval(1000);
+    connect(elapsedTimer_, &QTimer::timeout, this, &KioskWindow::updateElapsed);
+    elapsedTimer_->start();
+
     goPhase1();
 }
 
-void KioskWindow::onCandidateFound(QString macStr, int rssi) { p1_->addCandidate(macStr, rssi); }
-void KioskWindow::onCaptureError(QString msg) { QMessageBox::critical(this, "캡처 오류", msg); }
+void KioskWindow::makePhaseStep(QWidget*& wOut, QLabel*& circleOut, QLabel*& textOut,
+                                const QString& numText, const QString& labelText) {
+    wOut = new QWidget();
+    auto* l = new QHBoxLayout(wOut);
+    l->setContentsMargins(0, 0, 0, 0);
+    l->setSpacing(6);
 
-void KioskWindow::goPhase1() { stack_->setCurrentWidget(p1_); }
+    circleOut = new QLabel(numText);
+    circleOut->setFixedSize(28, 28);
+    circleOut->setAlignment(Qt::AlignCenter);
+
+    textOut = new QLabel(labelText);
+
+    l->addWidget(circleOut);
+    l->addWidget(textOut);
+}
+
+void KioskWindow::buildHeader() {
+    header_ = new QWidget();
+    auto* headerLayout = new QVBoxLayout(header_);
+    headerLayout->setContentsMargins(0, 0, 0, 0);
+    headerLayout->setSpacing(0);
+
+    // 1) 타이틀 밴드
+    titleLabel_ = new QLabel("Wi-Fi 를 껐다 켜보세요!");
+    titleLabel_->setAlignment(Qt::AlignCenter);
+    titleLabel_->setStyleSheet(
+        "background: white; color: #1F2937;"
+        "font-size: 20pt; font-weight: 700;"
+        "padding: 18px 14px; border-bottom: 1px solid #F3F4F6;"
+        );
+    headerLayout->addWidget(titleLabel_);
+
+    // 2) 페이즈 인디케이터 + Scanning 밴드
+    auto* phaseBand = new QWidget();
+    phaseBand->setStyleSheet("background: #F9FAFB; border-bottom: 1px solid #E5E7EB;");
+    auto* phaseLayout = new QHBoxLayout(phaseBand);
+    phaseLayout->setContentsMargins(20, 10, 20, 10);
+    phaseLayout->setSpacing(0);
+
+    makePhaseStep(phaseStep1_, phaseStep1Num_, phaseStep1Text_, "1", "검색");
+    makePhaseStep(phaseStep2_, phaseStep2Num_, phaseStep2Text_, "2", "등록");
+    makePhaseStep(phaseStep3_, phaseStep3Num_, phaseStep3Text_, "3", "완료");
+
+    auto makeConnector = []() {
+        auto* line = new QFrame();
+        line->setFixedSize(32, 1);
+        line->setStyleSheet("background: #D1D5DB;");
+        return line;
+    };
+
+    phaseLayout->addWidget(phaseStep1_);
+    phaseLayout->addSpacing(8);
+    phaseLayout->addWidget(makeConnector(), 0, Qt::AlignVCenter);
+    phaseLayout->addSpacing(8);
+    phaseLayout->addWidget(phaseStep2_);
+    phaseLayout->addSpacing(8);
+    phaseLayout->addWidget(makeConnector(), 0, Qt::AlignVCenter);
+    phaseLayout->addSpacing(8);
+    phaseLayout->addWidget(phaseStep3_);
+    phaseLayout->addStretch();
+
+    // scanningLabel_ = new QLabel("● Scanning");
+    // scanningLabel_->setStyleSheet("color: #10B981; font-weight: 600; font-size: 11pt;");
+    //phaseLayout->addWidget(scanningLabel_);
+
+    headerLayout->addWidget(phaseBand);
+}
+
+void KioskWindow::buildStatusBar() {
+    statusBar_ = new QWidget();
+    statusBar_->setStyleSheet("background: #F3F4F6; border-top: 1px solid #E5E7EB;");
+    auto* sb = new QHBoxLayout(statusBar_);
+    sb->setContentsMargins(16, 8, 16, 8);
+
+    const char* sbStyle = "color: #6B7280; font-size: 10pt;";
+
+    scanStatusLabel_ = new QLabel("📡 스캔 중...");
+    scanStatusLabel_->setStyleSheet(sbStyle);
+    sb->addWidget(scanStatusLabel_);
+
+    sb->addSpacing(20);
+
+    deviceCountLabel_ = new QLabel("0 devices");
+    deviceCountLabel_->setStyleSheet(sbStyle);
+    sb->addWidget(deviceCountLabel_);
+
+    sb->addSpacing(20);
+
+    elapsedLabel_ = new QLabel("00:00");
+    elapsedLabel_->setStyleSheet("color: #6B7280; font-size: 10pt; font-family: monospace;");
+    sb->addWidget(elapsedLabel_);
+
+    sb->addStretch();
+
+    adminBtn_ = new QPushButton("⚙ 관리자");
+    adminBtn_->setMinimumSize(110, 32);
+    adminBtn_->setCursor(Qt::PointingHandCursor);
+    adminBtn_->setStyleSheet(
+        "QPushButton { background: white; color: #4B5563;"
+        "  border: 1px solid #000000; border-radius: 4px;"
+        "  padding: 6px 14px; font-size: 10pt; font-weight: 500; }"
+        "QPushButton:hover { background: #EFF6FF; border-color: #93C5FD; color: #2563EB; }"
+        );
+    connect(adminBtn_, &QPushButton::clicked, this, &KioskWindow::goAdmin);
+    sb->addWidget(adminBtn_);
+}
+
+void KioskWindow::updatePhaseIndicator(int activeStep) {
+    auto apply = [](QLabel* circle, QLabel* text,
+                    const QString& circleText, const QString& state) {
+        circle->setText(circleText);
+        if (state == "active") {
+            circle->setStyleSheet(
+                "background: #2563EB; color: white;"
+                "border-radius: 14px; font-weight: 700; font-size: 11pt;"
+                );
+            text->setStyleSheet("color: #1F2937; font-weight: 600; font-size: 11pt;");
+        } else if (state == "done") {
+            circle->setStyleSheet(
+                "background: #10B981; color: white;"
+                "border-radius: 14px; font-weight: 700; font-size: 11pt;"
+                );
+            text->setStyleSheet("color: #1F2937; font-weight: 600; font-size: 11pt;");
+        } else { // inactive
+            circle->setStyleSheet(
+                "background: white; color: #000000;"
+                "border: 1.5px solid #000000; border-radius: 14px;"
+                "font-weight: 600; font-size: 11pt;"
+                );
+            text->setStyleSheet("color: #000000; font-size: 11pt;");
+        }
+    };
+
+    if (activeStep == 1) {
+        apply(phaseStep1Num_, phaseStep1Text_, "1", "active");
+        apply(phaseStep2Num_, phaseStep2Text_, "2", "inactive");
+        apply(phaseStep3Num_, phaseStep3Text_, "3", "inactive");
+    } else if (activeStep == 2) {
+        apply(phaseStep1Num_, phaseStep1Text_, "✓", "done");
+        apply(phaseStep2Num_, phaseStep2Text_, "2", "active");
+        apply(phaseStep3Num_, phaseStep3Text_, "3", "inactive");
+    } else if (activeStep == 3) {
+        apply(phaseStep1Num_, phaseStep1Text_, "✓", "done");
+        apply(phaseStep2Num_, phaseStep2Text_, "✓", "done");
+        apply(phaseStep3Num_, phaseStep3Text_, "3", "active");
+    }
+}
+
+void KioskWindow::setActivePhase(int phase) {
+    updatePhaseIndicator(phase);
+    switch (phase) {
+    case 1: titleLabel_->setText("Wi-Fi 를 껐다 켜보세요!"); break;
+    case 2: titleLabel_->setText("등록 정보 입력");          break;
+    case 3: titleLabel_->setText("등록 완료!");              break;
+    }
+}
+
+void KioskWindow::setChromeVisible(bool visible) {
+    if (header_)    header_->setVisible(visible);
+    if (statusBar_) statusBar_->setVisible(visible);
+}
+
+void KioskWindow::onCandidateFound(QString macStr, int rssi) {
+    p1_->addCandidate(macStr, rssi);
+}
+
+void KioskWindow::onCaptureError(QString msg) {
+    QMessageBox::critical(this, "캡처 오류", msg);
+}
+
+void KioskWindow::updateElapsed() {
+    ++elapsedSeconds_;
+    int mm = (elapsedSeconds_ / 60) % 60;
+    int ss = elapsedSeconds_ % 60;
+    elapsedLabel_->setText(QString("%1:%2")
+                               .arg(mm, 2, 10, QChar('0'))
+                               .arg(ss, 2, 10, QChar('0')));
+}
+
+void KioskWindow::updateDeviceCount(int count) {
+    deviceCountLabel_->setText(QString("%1 devices").arg(count));
+}
+
+void KioskWindow::goPhase1() {
+    setChromeVisible(true);
+    setActivePhase(1);
+    stack_->setCurrentWidget(p1_);
+}
+
 void KioskWindow::goPhase2(QString macStr) {
+    setChromeVisible(true);
+    setActivePhase(2);
     p2_->setTargetMac(macStr);
     stack_->setCurrentWidget(p2_);
+    p2_->focusFirstInput();
 }
+
 void KioskWindow::goPhase3() {
+    setChromeVisible(true);
+    setActivePhase(3);
     stack_->setCurrentWidget(p3_);
     p3_->showCompleted();
 }
+
 void KioskWindow::goAdmin() {
+    setChromeVisible(false);
     admin_->refresh();
     stack_->setCurrentWidget(admin_);
+    admin_->focusSearch();
 }
 
 void KioskWindow::onPhase2Confirmed(QString macStr, QString name, QString phone, QString deviceType) {
