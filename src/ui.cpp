@@ -24,6 +24,62 @@ Phase1Widget::Phase1Widget(QWidget* parent) : QWidget(parent) {
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
+    auto* imDummy = new QLineEdit(this);
+    imDummy->setFixedSize(0, 0);
+    imDummy->setAttribute(Qt::WA_InputMethodEnabled, true);
+    imDummy->setInputMethodHints(Qt::ImhNone);
+    imDummy->hide();  // 숨기되 삭제하지 않음
+
+    //*/ ────────── ✅ 한글 입력 테스트 패널 추가 ──────────
+    auto* testPanel = new QWidget(this);
+    testPanel->setStyleSheet(
+        "background: #EFF6FF;"
+        "border-bottom: 2px solid #BFDBFE;"
+        );
+    auto* testLayout = new QHBoxLayout(testPanel);
+    testLayout->setContentsMargins(16, 10, 16, 10);
+    testLayout->setSpacing(10);
+
+    auto* testLabel = new QLabel("🇰🇷 한글 입력 테스트:");
+    testLabel->setStyleSheet("color: #1D4ED8; font-size: 11pt; font-weight: 700; background: transparent;");
+    testLayout->addWidget(testLabel);
+
+    testEdit_ = new QLineEdit();
+    testEdit_->setPlaceholderText("홍길동");
+    testEdit_->setMinimumHeight(38);
+    testEdit_->setStyleSheet(
+        "QLineEdit {"
+        "  background: white; color: #1F2937;"
+        "  border: 1.5px solid #93C5FD; border-radius: 4px;"
+        "  padding: 6px 12px; font-size: 12pt;"
+        "}"
+        "QLineEdit:focus {"
+        "  border: 2px solid #2563EB;"
+        "}"
+        );
+    testLayout->addWidget(testEdit_, 1);
+
+    testResultLabel_ = new QLabel("입력값: -");
+    testResultLabel_->setMinimumWidth(200);
+    testResultLabel_->setStyleSheet(
+        "color: #1F2937; font-size: 11pt; background: transparent; padding: 0 8px;"
+        );
+    testLayout->addWidget(testResultLabel_);
+
+    auto* clearBtn = new QPushButton("지우기");
+    clearBtn->setMinimumSize(80, 36);
+    clearBtn->setCursor(Qt::PointingHandCursor);
+    clearBtn->setStyleSheet(
+        "QPushButton { background: #2563EB; color: white; border: none;"
+        "  border-radius: 4px; padding: 6px 14px;"
+        "  font-size: 10pt; font-weight: 600; }"
+        "QPushButton:hover { background: #1D4ED8; }"
+        );
+    testLayout->addWidget(clearBtn);
+
+    root->addWidget(testPanel);
+    // ────────── 테스트 패널 끝 ──────────*/
+
     table_ = new QTableWidget(0, 4, this);
     table_->setHorizontalHeaderLabels({"MAC 주소", "제조사", "신호", ""});
     table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -159,6 +215,14 @@ Phase2Widget::Phase2Widget(QWidget* parent) : QWidget(parent) {
     phoneEdit_ = new QLineEdit();
     typeCombo_ = new QComboBox();
 
+    // ── 명시적 IM 활성화 속성 부여 ──────────────────
+    nameEdit_->setAttribute(Qt::WA_InputMethodEnabled, true);
+    phoneEdit_->setAttribute(Qt::WA_InputMethodEnabled, true);
+
+    // inputMethodHints 초기화 (한글 차단 힌트 제거)
+    nameEdit_->setInputMethodHints(Qt::ImhNone);
+    phoneEdit_->setInputMethodHints(Qt::ImhNone);
+
     nameEdit_->setMinimumHeight(44);
     phoneEdit_->setMinimumHeight(44);
     typeCombo_->setMinimumHeight(44);
@@ -235,6 +299,7 @@ void Phase2Widget::setTargetMac(const QString& macStr) {
 void Phase2Widget::focusFirstInput() {
     nameEdit_->setFocus();
     nameEdit_->selectAll();
+    nameEdit_->setCursorPosition(0);
 }
 
 void Phase2Widget::onConfirm() {
@@ -385,13 +450,12 @@ AdminPage::AdminPage(Db* db, QWidget* parent) : QWidget(parent), db_(db) {
     // ─── 하단 버튼 ───
     auto* btnRow = new QHBoxLayout();
     deleteBtn_ = new QPushButton("선택 삭제");
-    exportBtn_ = new QPushButton("CSV Export");
     backBtn_   = new QPushButton("← 뒤로");
     deleteBtn_->setMinimumSize(120, 44);
-    exportBtn_->setMinimumSize(120, 44);
+    //exportBtn_->setMinimumSize(120, 44);
     backBtn_->setMinimumSize(120, 44);
     deleteBtn_->setCursor(Qt::PointingHandCursor);
-    exportBtn_->setCursor(Qt::PointingHandCursor);
+    //exportBtn_->setCursor(Qt::PointingHandCursor);
     backBtn_->setCursor(Qt::PointingHandCursor);
 
     const char* secondaryBtn =
@@ -409,11 +473,11 @@ AdminPage::AdminPage(Db* db, QWidget* parent) : QWidget(parent), db_(db) {
         "QPushButton:pressed { background: #FEE2E2; }";
 
     deleteBtn_->setStyleSheet(dangerBtn);
-    exportBtn_->setStyleSheet(secondaryBtn);
+    //exportBtn_->setStyleSheet(secondaryBtn);
     backBtn_->setStyleSheet(secondaryBtn);
 
     btnRow->addWidget(deleteBtn_);
-    btnRow->addWidget(exportBtn_);
+    //btnRow->addWidget(exportBtn_);
     btnRow->addStretch();
     btnRow->addWidget(backBtn_);
     root->addLayout(btnRow);
@@ -421,7 +485,6 @@ AdminPage::AdminPage(Db* db, QWidget* parent) : QWidget(parent), db_(db) {
     connect(searchBtn_,  &QPushButton::clicked,     this, &AdminPage::onSearch);
     connect(searchEdit_, &QLineEdit::returnPressed, this, &AdminPage::onSearch);
     connect(deleteBtn_,  &QPushButton::clicked,     this, &AdminPage::onDeleteSelected);
-    // connect(exportBtn_, &QPushButton::clicked,    this, &AdminPage::onExportCsv);  // 비활성 상태 유지
     connect(backBtn_,    &QPushButton::clicked,     this, &AdminPage::onBack);
 }
 
@@ -516,15 +579,6 @@ void AdminPage::onDeleteSelected() {
         QMessageBox::information(this, "삭제", "User 직접 삭제는 지원하지 않습니다.");
     }
 }
-
-// void AdminPage::onExportCsv() {
-//     if (!db_) return;
-//     QString path = QFileDialog::getSaveFileName(this, "CSV 저장", "MAC_address_export.csv", "CSV Files (*.csv)");
-//     if (path.isEmpty()) return;
-//     bool ok = db_->exportCsv(path.toStdString());
-//     if (ok) QMessageBox::information(this, "Export", "내보내기 완료: " + path);
-//     else    QMessageBox::warning(this, "Export", "내보내기 실패");
-// }
 
 void AdminPage::onBack() { emit backRequested(); }
 
@@ -778,7 +832,7 @@ void KioskWindow::goPhase2(QString macStr) {
     setActivePhase(2);
     p2_->setTargetMac(macStr);
     stack_->setCurrentWidget(p2_);
-    p2_->focusFirstInput();
+    QTimer::singleShot(0, p2_, &Phase2Widget::focusFirstInput);
 }
 
 void KioskWindow::goPhase3() {

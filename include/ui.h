@@ -32,6 +32,9 @@ private slots:
 
 private:
     QTableWidget* table_;
+    //test코드
+    QLineEdit*    testEdit_         = nullptr;
+    QLabel*       testResultLabel_  = nullptr;
 };
 
 // Phase 2 ─ 정보 입력
@@ -87,7 +90,6 @@ signals:
 private slots:
     void onSearch();
     void onDeleteSelected();
-    void onExportCsv();
     void onBack();
 
 private:

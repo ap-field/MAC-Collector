@@ -12,6 +12,7 @@ qt_add_executable(mac-collector
 
     include/capture.h include/collectorwindow.h include/db.h include/dot11hdr.h include/mac.h include/parser.h include/radiotaphdr.h include/ui.h
     src/capture.cpp src/collectorwindow.cpp src/db.cpp src/mac.cpp src/main.cpp src/parser.cpp src/ui.cpp
+
 )
 target_include_directories(mac-collector PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -23,6 +24,11 @@ target_link_libraries(mac-collector
         Qt::Widgets
         pcap
         sqlite3
+)
+
+add_custom_command(TARGET mac-collector POST_BUILD
+    COMMAND sudo setcap cap_net_raw,cap_net_admin=eip $<TARGET_FILE:mac-collector>
+    COMMENT "Setting packet capture capability..."
 )
 
 install(TARGETS mac-collector
