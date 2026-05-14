@@ -6,7 +6,6 @@
 
 namespace {
 
-// Radiotap 에서 Antenna Signal(RSSI dBm) 추출 + 헤더 길이.
 bool extractRadiotap(const uint8_t* data, int len,
                      int* outRssi, uint16_t* outRtLen)
 {
@@ -21,7 +20,6 @@ bool extractRadiotap(const uint8_t* data, int len,
     if (rtLen < 8 || rtLen > len) return false;
     *outRtLen = rtLen;
 
-    // present 확장 워드 스킵
     uint32_t present0 = rt.it_present;
     size_t   fieldOff = 8;
     {
@@ -92,12 +90,12 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
     std::memcpy(&hdr, data + rtLen, sizeof(hdr));
 
     uint16_t fc      = hdr.frameControl;
-    uint8_t  type    = (fc >> 2) & 0x03;   // 0=mgmt
+    uint8_t  type    = (fc >> 2) & 0x03;
     uint8_t  subtype = (fc >> 4) & 0x0F;
 
-    if (type != 0) return r;
-    // 0x0=Assoc Req, 0x2=Reassoc Req, 0xB=Auth
-    if (subtype != 0x0 && subtype != 0x2 && subtype != 0xB) return r;
+    // 관리 프레임 + Probe Request 만 통과
+    if (type != Dot11::TYPE_MGT)              return r;
+    if (subtype != Dot11::SUBTYPE_PROBE_REQ)  return r;
 
     r.ok      = true;
     r.addr2   = Mac(hdr.addr2);

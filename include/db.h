@@ -16,7 +16,10 @@ struct StationEntry {
     Mac         mac;
     std::string name;
     std::string phoneNum;
-    int         type;   // 1=notebook 2=phone 3=tablet 4=iot 99=other
+    int         type;          // 1=notebook 2=phone 3=tablet 4=iot 99=other
+    std::string vendor;
+    std::string registeredAt;  // ISO 8601
+    std::string updatedAt;     // ISO 8601
 };
 
 struct ApEntry {
@@ -24,7 +27,7 @@ struct ApEntry {
     int other;
 };
 
-struct sqlite3;  // forward decl. <sqlite3.h> 는 .cpp 에서만 include
+struct sqlite3;
 
 class Db {
 public:
@@ -38,11 +41,16 @@ public:
     void close();
     bool isOpen() const { return db_ != nullptr; }
 
-    bool macExists(const Mac& mac);   // station ∪ ap
+    bool macExists(const Mac& mac);
 
     bool addUser(const UserEntry& u);
     bool addStation(const StationEntry& s);
     bool addAp(const ApEntry& a);
+
+    bool updateStation(const Mac& mac,
+                       const std::string& name,
+                       const std::string& phone,
+                       int type);
 
     std::vector<UserEntry>    listUsers();
     std::vector<StationEntry> listStations();

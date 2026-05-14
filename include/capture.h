@@ -9,7 +9,10 @@
 #include "mac.h"
 #include "parser.h"
 
-class Db;  // forward decl. <pcap.h> 는 .cpp 에서만
+struct pcap;
+typedef struct pcap pcap_t;   // <pcap.h> 는 .cpp 에서만 include
+
+class Db;
 
 class CaptureWorker : public QObject {
     Q_OBJECT
@@ -24,7 +27,7 @@ public slots:
     void run();
 
 signals:
-    void candidateFound(QString macStr, int rssi);
+    void candidateFound(QString macStr, int rssi, QString vendor, QString timestamp);
     void errorOccurred(QString msg);
     void finished();
 
@@ -33,5 +36,6 @@ private:
     Parser            parser_;
     Db*               db_;
     std::atomic<bool> stop_;
-    std::set<Mac>     seenInSession_;  // 동일 MAC 중복 emit 방지
+    pcap_t*           pcap_ = nullptr;
+    std::set<Mac>     seenInSession_;
 };

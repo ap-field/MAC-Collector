@@ -6,10 +6,10 @@
 class Parser {
 public:
     struct Result {
-        bool     ok;       // 파싱 성공 + RSSI threshold + Auth/Assoc 통과
+        bool     ok;       // 파싱 성공 + RSSI threshold + Probe Req 통과
         Mac      addr2;    // 송신 Station MAC
         int      rssi;     // dBm
-        uint8_t  subtype;  // 0=Assoc, 2=Reassoc, 0x0B=Auth
+        uint8_t  subtype;  // 0x04=Probe Req
     };
 
     explicit Parser(int rssiThresholdDbm);

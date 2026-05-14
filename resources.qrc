@@ -1,0 +1,12 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+  <qresource prefix="/audio">
+    <file>audio/scan_guide.mp3</file>
+    <file>audio/mac_detected.mp3</file>
+    <file>audio/input_guide.mp3</file>
+    <file>audio/register_complete.mp3</file>
+    <file>audio/duplicate_notice.mp3</file>
+    <file>audio/update_guide.mp3</file>
+    <file>audio/update_complete.mp3</file>
+  </qresource>
+</RCC>

@@ -11,42 +11,83 @@ class QPushButton;
 class QLabel;
 class QTabWidget;
 class QTimer;
+class QMediaPlayer;
+class QAudioOutput;
 class Db;
+class ApiClient;
 
-// Phase 1 ─ 후보 표시
+// ────────── AudioPlayer ──────────
+class AudioPlayer : public QObject {
+    Q_OBJECT
+public:
+    static AudioPlayer& instance();
+
+    // files 에 담긴 mp3를 순서대로 재생
+    void play(const QStringList& files);
+    void stop();
+
+private:
+    explicit AudioPlayer(QObject* parent = nullptr);
+    void playNext();
+
+    QMediaPlayer*  player_;
+    QAudioOutput*  audioOut_;
+    QStringList    queue_;
+    int            queueIdx_ = 0;
+};
+
+// ────────── Phase1Widget ──────────
 class Phase1Widget : public QWidget {
     Q_OBJECT
 public:
-    explicit Phase1Widget(QWidget* parent = nullptr);
-    void addCandidate(const QString& macStr, int rssi);
+    explicit Phase1Widget(Db* db, QWidget* parent = nullptr);
+
+    // 시나리오 1 — 신규 MAC 행 추가
+    void addCandidate(const QString& macStr, int rssi,
+                      const QString& vendor, const QString& timestamp);
+
+    // 시나리오 2 — 중복 MAC 행 추가
+    void showDuplicateNotice(const QString& macStr,
+                             const QString& ownerName,
+                             const QString& phone,
+                             const QString& vendor,
+                             int rssi,
+                             const QString& registeredAt);
+
     void removeCandidate(const QString& macStr);
     void clearCandidates();
     int  candidateCount() const;
 
 signals:
-    void registerRequested(QString macStr);
+    void registerRequested(QString macStr, QString vendor, QString timestamp);
+    void updateRequested(QString macStr);          // 시나리오 2→3
     void candidateCountChanged(int count);
 
 private slots:
     void onRegisterButtonClicked();
+    void onUpdateButtonClicked();
 
 private:
     QTableWidget* table_;
-    //test코드
-    QLineEdit*    testEdit_         = nullptr;
-    QLabel*       testResultLabel_  = nullptr;
+    Db*           db_;
+    QLineEdit*    testEdit_        = nullptr;
+    QLabel*       testResultLabel_ = nullptr;
 };
 
-// Phase 2 ─ 정보 입력
+// ────────── Phase2Widget ──────────
 class Phase2Widget : public QWidget {
     Q_OBJECT
 public:
     explicit Phase2Widget(QWidget* parent = nullptr);
     void setTargetMac(const QString& macStr);
+    void prefill(const QString& name, const QString& phone,
+                 const QString& deviceType);
     void focusFirstInput();
+    void setUpdateMode(bool isUpdate);   // 등록 / 변경 라벨 전환
 
 signals:
-    void confirmed(QString macStr, QString name, QString phone, QString deviceType);
+    void confirmed(QString macStr, QString name,
+                   QString phone, QString deviceType);
     void canceled();
 
 private slots:
@@ -54,6 +95,7 @@ private slots:
     void onCancel();
 
 private:
+    QLabel*      titleLabel_;
     QLabel*      macLabel_;
     QLineEdit*   nameEdit_;
     QLineEdit*   phoneEdit_;
@@ -62,25 +104,26 @@ private:
     QPushButton* cancelBtn_;
 };
 
-// Phase 3 ─ 등록 완료
+// ────────── Phase3Widget ──────────
 class Phase3Widget : public QWidget {
     Q_OBJECT
 public:
     explicit Phase3Widget(QWidget* parent = nullptr);
-    void showCompleted();
+    void showCompleted(bool isUpdate = false);
 
 signals:
     void autoReturn();
 
 private:
     QLabel* msgLabel_;
+    QLabel* subLabel_;
 };
 
-// AdminPage
+// ────────── AdminPage ──────────
 class AdminPage : public QWidget {
     Q_OBJECT
 public:
-    explicit AdminPage(Db* db, QWidget* parent = nullptr);
+    explicit AdminPage(Db* db, ApiClient* api, QWidget* parent = nullptr);
     void refresh();
     void focusSearch();
 
@@ -90,10 +133,12 @@ signals:
 private slots:
     void onSearch();
     void onDeleteSelected();
+    void onEditSelected();
     void onBack();
 
 private:
     Db*           db_;
+    ApiClient*    api_;
     QTabWidget*   tabs_;
     QTableWidget* stationTable_;
     QTableWidget* apTable_;
@@ -101,7 +146,7 @@ private:
     QLineEdit*    searchEdit_;
     QPushButton*  searchBtn_;
     QPushButton*  deleteBtn_;
-    QPushButton*  exportBtn_;
+    QPushButton*  editBtn_;
     QPushButton*  backBtn_;
 
     void reloadStations(const QString& keyword);
@@ -109,22 +154,30 @@ private:
     void reloadUsers();
 };
 
-// KioskWindow
+// ────────── KioskWindow ──────────
 class KioskWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit KioskWindow(Db* db, QWidget* parent = nullptr);
+    explicit KioskWindow(Db* db, ApiClient* api, QWidget* parent = nullptr);
 
 public slots:
-    void onCandidateFound(QString macStr, int rssi);
+    void onCandidateFound(QString macStr, int rssi,
+                          QString vendor, QString timestamp);
     void onCaptureError(QString msg);
 
 private slots:
     void goPhase1();
-    void goPhase2(QString macStr);
+    void goPhase2Register(QString macStr, QString vendor, QString timestamp);
+    void goPhase2Update(QString macStr);
     void goPhase3();
     void goAdmin();
-    void onPhase2Confirmed(QString macStr, QString name, QString phone, QString deviceType);
+    void onPhase2Confirmed(QString macStr, QString name,
+                           QString phone, QString deviceType);
+    void onRegisterSuccess(QString mac, QString registeredAt);
+    void onRegisterFailed(QString mac, QString reason);
+    void onUpdateSuccess(QString mac, QString updatedAt);
+    void onUpdateFailed(QString mac, QString reason);
+    void onCheckResult(QString mac, bool exists, QJsonObject data);
     void updateElapsed();
     void updateDeviceCount(int count);
 
@@ -133,11 +186,19 @@ private:
     void buildStatusBar();
     void makePhaseStep(QWidget*& wOut, QLabel*& circleOut, QLabel*& textOut,
                        const QString& numText, const QString& labelText);
-    void setActivePhase(int phase);       // 1, 2, 3
-    void setChromeVisible(bool visible);  // hide header/status bar for admin page
+    void setActivePhase(int phase);
+    void setChromeVisible(bool visible);
     void updatePhaseIndicator(int activeStep);
 
-    Db* db_;
+    Db*        db_;
+    ApiClient* api_;
+
+    bool    isUpdateMode_     = false;
+    bool    phase1Entered_    = false;  // 최초 1회 스캔 음성 재생 플래그
+    QString pendingMac_;
+    QString pendingVendor_;
+    QString pendingTimestamp_;
+    int     pendingRssi_      = 0;
 
     // Header
     QWidget* header_         = nullptr;
@@ -151,7 +212,6 @@ private:
     QWidget* phaseStep3_     = nullptr;
     QLabel*  phaseStep3Num_  = nullptr;
     QLabel*  phaseStep3Text_ = nullptr;
-    QLabel*  scanningLabel_  = nullptr;
 
     // Stack
     QStackedWidget* stack_ = nullptr;
