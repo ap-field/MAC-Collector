@@ -17,7 +17,6 @@ qt_add_executable(mac-collector
     include/parser.h
     include/radiotaphdr.h
     include/ui.h
-    include/api_client.h
     include/vendor_lookup.h
 
     src/capture.cpp
@@ -27,10 +26,10 @@ qt_add_executable(mac-collector
     src/main.cpp
     src/parser.cpp
     src/ui.cpp
-    src/api_client.cpp
     src/vendor_lookup.cpp
 
     resources.qrc
+    setup.sh
 )
 
 target_include_directories(mac-collector PRIVATE
@@ -46,12 +45,6 @@ target_link_libraries(mac-collector
         pcap
         sqlite3
 )
-
-# # setcap 절대경로로 지정
-# add_custom_command(TARGET mac-collector POST_BUILD
-#     COMMAND /usr/sbin/setcap cap_net_raw,cap_net_admin=eip $<TARGET_FILE:mac-collector>
-#     COMMENT "Setting packet capture capability..."
-# )
 
 install(TARGETS mac-collector
     BUNDLE  DESTINATION

@@ -1,8 +1,9 @@
 #include "ui.h"
 #include "db.h"
 #include "mac.h"
-#include "api_client.h"
 
+#include <QApplication>
+#include <QCloseEvent>
 #include <QComboBox>
 #include <QDebug>
 #include <QDialog>
@@ -14,7 +15,9 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QNetworkInterface>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QStackedWidget>
 #include <QTableWidget>
 #include <QTabWidget>
@@ -23,19 +26,125 @@
 #include <QDateTime>
 #include <QMediaPlayer>
 #include <QAudioOutput>
-#include <QJsonObject>
+
+// ════════════════════════════════════════════════
+//  SettingsDialog
+// ════════════════════════════════════════════════
+
+SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent)
+{
+    setWindowTitle("캡처 설정");
+    setMinimumWidth(420);
+    setModal(true);
+
+    auto* root = new QVBoxLayout(this);
+    root->setSpacing(16);
+    root->setContentsMargins(24, 24, 24, 24);
+
+    auto* title = new QLabel("📡 MAC 수집 시스템 설정");
+    title->setStyleSheet("QLabel { font-size: 14pt; font-weight: 700; color: #1E3A5F; }");
+    title->setAlignment(Qt::AlignCenter);
+    root->addWidget(title);
+
+    auto* form = new QFormLayout();
+    form->setSpacing(12);
+    form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+    auto mkLabel = [](const QString& t) {
+        auto* l = new QLabel(t);
+        l->setStyleSheet("QLabel { font-size: 10pt; font-weight: 600; color: #374151; }");
+        return l;
+    };
+
+    // 인터페이스 목록 (시스템 NIC 자동 열거 + 직접 입력 가능)
+    ifaceCombo_ = new QComboBox();
+    ifaceCombo_->setEditable(true);
+    ifaceCombo_->setMinimumHeight(36);
+    for (const auto& ni : QNetworkInterface::allInterfaces())
+        ifaceCombo_->addItem(ni.name());
+    ifaceCombo_->setCurrentText("wlan0mon");
+    ifaceCombo_->setStyleSheet(
+        "QComboBox { border: 1.5px solid #D1D5DB; border-radius: 6px;"
+        "  padding: 6px 10px; font-size: 10pt; }"
+        "QComboBox:focus { border: 2px solid #2563EB; }");
+    form->addRow(mkLabel("네트워크 인터페이스:"), ifaceCombo_);
+
+    // 채널 (0 = 변경 안함)
+    channelSpin_ = new QSpinBox();
+    channelSpin_->setRange(0, 14);
+    channelSpin_->setValue(0);
+    channelSpin_->setSpecialValueText("변경 안함 (0)");
+    channelSpin_->setMinimumHeight(36);
+    channelSpin_->setStyleSheet(
+        "QSpinBox { border: 1.5px solid #D1D5DB; border-radius: 6px;"
+        "  padding: 6px 10px; font-size: 10pt; }"
+        "QSpinBox:focus { border: 2px solid #2563EB; }");
+    form->addRow(mkLabel("채널 번호 (1-14):"), channelSpin_);
+
+    // RSSI 임계값
+    rssiSpin_ = new QSpinBox();
+    rssiSpin_->setRange(-100, -20);
+    rssiSpin_->setValue(-60);
+    rssiSpin_->setSuffix(" dBm");
+    rssiSpin_->setMinimumHeight(36);
+    rssiSpin_->setStyleSheet(
+        "QSpinBox { border: 1.5px solid #D1D5DB; border-radius: 6px;"
+        "  padding: 6px 10px; font-size: 10pt; }"
+        "QSpinBox:focus { border: 2px solid #2563EB; }");
+    form->addRow(mkLabel("RSSI 임계값:"), rssiSpin_);
+
+    // DB 경로
+    dbEdit_ = new QLineEdit("MAC_address.db");
+    dbEdit_->setMinimumHeight(36);
+    dbEdit_->setStyleSheet(
+        "QLineEdit { border: 1.5px solid #D1D5DB; border-radius: 6px;"
+        "  padding: 6px 10px; font-size: 10pt; }"
+        "QLineEdit:focus { border: 2px solid #2563EB; }");
+    form->addRow(mkLabel("DB 파일 경로:"), dbEdit_);
+
+    root->addLayout(form);
+
+    // 버튼
+    auto* btnRow = new QHBoxLayout();
+    auto* cancelBtn = new QPushButton("취소");
+    cancelBtn->setMinimumSize(100, 40);
+    cancelBtn->setStyleSheet(
+        "QPushButton { background: #F3F4F6; color: #374151;"
+        "  border: 1px solid #D1D5DB; border-radius: 6px; font-size: 10pt; }"
+        "QPushButton:hover { background: #E5E7EB; }");
+
+    auto* okBtn = new QPushButton("시작");
+    okBtn->setMinimumSize(120, 40);
+    okBtn->setDefault(true);
+    okBtn->setStyleSheet(
+        "QPushButton { background: #2563EB; color: white; border: none;"
+        "  border-radius: 6px; font-size: 10pt; font-weight: 700; }"
+        "QPushButton:hover { background: #1D4ED8; }");
+
+    btnRow->addStretch(1);
+    btnRow->addWidget(cancelBtn);
+    btnRow->addWidget(okBtn);
+    root->addLayout(btnRow);
+
+    connect(okBtn,     &QPushButton::clicked, this, &SettingsDialog::onOk);
+    connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+}
+
+void SettingsDialog::onOk() {
+    if (ifaceCombo_->currentText().trimmed().isEmpty()) {
+        QMessageBox::warning(this, "입력 오류", "네트워크 인터페이스를 입력하세요.");
+        return;
+    }
+    accept();
+}
+
+QString SettingsDialog::iface()         const { return ifaceCombo_->currentText().trimmed(); }
+int     SettingsDialog::channel()       const { return channelSpin_->value(); }
+int     SettingsDialog::rssiThreshold() const { return rssiSpin_->value(); }
+QString SettingsDialog::dbPath()        const { return dbEdit_->text().trimmed(); }
 
 // ════════════════════════════════════════════════
 //  AudioPlayer
-//
-//  MP3 파일 경로 규칙 (Qt Resource 기준):
-//    :/audio/scan_guide.mp3          ← 시작/스캔 안내
-//    :/audio/mac_detected.mp3        ← 신규 MAC 감지
-//    :/audio/input_guide.mp3         ← 등록 입력 화면 진입
-//    :/audio/register_complete.mp3   ← 등록 완료
-//    :/audio/duplicate_notice.mp3    ← 중복 감지
-//    :/audio/update_guide.mp3        ← 변경 화면 진입
-//    :/audio/update_complete.mp3     ← 변경 완료
 // ════════════════════════════════════════════════
 
 AudioPlayer& AudioPlayer::instance() {
@@ -51,10 +160,10 @@ AudioPlayer::AudioPlayer(QObject* parent)
     player_->setAudioOutput(audioOut_);
     audioOut_->setVolume(1.0f);
 
-    // 한 파일 재생 종료 → 다음 파일 재생
-    connect(player_, &QMediaPlayer::playbackStateChanged,
-            this, [this](QMediaPlayer::PlaybackState state) {
-                if (state == QMediaPlayer::StoppedState
+    // EndOfMedia 이벤트로 다음 파일 재생 (StoppedState보다 안정적)
+    connect(player_, &QMediaPlayer::mediaStatusChanged,
+            this, [this](QMediaPlayer::MediaStatus status) {
+                if (status == QMediaPlayer::EndOfMedia
                     && queueIdx_ < queue_.size())
                 {
                     playNext();
@@ -78,7 +187,10 @@ void AudioPlayer::stop() {
 void AudioPlayer::playNext() {
     if (queueIdx_ >= queue_.size()) return;
     const QString path = queue_.at(queueIdx_++);
-    player_->setSource(QUrl::fromLocalFile(path));
+    if (path.startsWith(":/"))
+        player_->setSource(QUrl("qrc" + path));
+    else
+        player_->setSource(QUrl::fromLocalFile(path));
     player_->play();
 }
 
@@ -153,8 +265,7 @@ Phase1Widget::Phase1Widget(Db* db, QWidget* parent)
     testLayout->addWidget(clearBtn);
     root->addWidget(testPanel, 0);
 
-    // ── 감지 테이블 (열 6개) ──
-    // 열: MAC주소 | 제조사 | 신호 | 감지시각 | 상태/등록버튼 | 변경버튼
+    // ── 감지 테이블 ──
     table_ = new QTableWidget(0, 6, this);
     table_->setHorizontalHeaderLabels(
         {"MAC 주소", "제조사", "신호", "감지 시각", "", ""});
@@ -185,12 +296,10 @@ Phase1Widget::Phase1Widget(Db* db, QWidget* parent)
     root->addWidget(table_, 1);
 }
 
-// ── 시나리오 1: 신규 MAC 행 추가 ──
 void Phase1Widget::addCandidate(const QString& macStr, int rssi,
                                 const QString& vendor,
                                 const QString& timestamp)
 {
-    // 이미 있는 MAC이면 무시
     for (int i = 0; i < table_->rowCount(); ++i) {
         if (table_->item(i, 0) &&
             table_->item(i, 0)->text() == macStr) return;
@@ -210,8 +319,7 @@ void Phase1Widget::addCandidate(const QString& macStr, int rssi,
     table_->setItem(row, 2, mkItem(QString("%1 dBm").arg(rssi)));
     table_->setItem(row, 3, mkItem(timestamp));
 
-    // 열 4: [등록하기] 버튼
-    auto* regBtn = new QPushButton("등록하기");
+    auto* regBtn = new QPushButton("등록");
     regBtn->setProperty("macStr",    macStr);
     regBtn->setProperty("vendor",    vendor);
     regBtn->setProperty("timestamp", timestamp);
@@ -224,14 +332,11 @@ void Phase1Widget::addCandidate(const QString& macStr, int rssi,
     connect(regBtn, &QPushButton::clicked,
             this, &Phase1Widget::onRegisterButtonClicked);
     table_->setCellWidget(row, 4, regBtn);
-
-    // 열 5: 신규 MAC은 [변경] 버튼 없음
     table_->setItem(row, 5, mkItem(""));
 
     emit candidateCountChanged(table_->rowCount());
 }
 
-// ── 시나리오 2: 중복 MAC 행 추가 ──
 void Phase1Widget::showDuplicateNotice(const QString& macStr,
                                        const QString& ownerName,
                                        const QString& phone,
@@ -239,7 +344,6 @@ void Phase1Widget::showDuplicateNotice(const QString& macStr,
                                        int rssi,
                                        const QString& registeredAt)
 {
-    // 이미 있는 MAC이면 무시
     for (int i = 0; i < table_->rowCount(); ++i) {
         if (table_->item(i, 0) &&
             table_->item(i, 0)->text() == macStr) return;
@@ -259,7 +363,6 @@ void Phase1Widget::showDuplicateNotice(const QString& macStr,
     table_->setItem(row, 2, mkItem(QString("%1 dBm").arg(rssi)));
     table_->setItem(row, 3, mkItem(registeredAt));
 
-    // 열 4: 등록 정보 뱃지
     auto* badge = new QLabel(
         QString("✅ 등록됨  %1 / %2").arg(ownerName, phone));
     badge->setStyleSheet(
@@ -269,7 +372,6 @@ void Phase1Widget::showDuplicateNotice(const QString& macStr,
     badge->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
     table_->setCellWidget(row, 4, badge);
 
-    // 열 5: [변경] 버튼 → 시나리오 3 분기
     auto* updBtn = new QPushButton("변경");
     updBtn->setProperty("macStr", macStr);
     updBtn->setCursor(Qt::PointingHandCursor);
@@ -366,7 +468,6 @@ Phase2Widget::Phase2Widget(QWidget* parent) : QWidget(parent)
         return e;
     };
 
-    // MAC — 읽기 전용 라벨
     macLabel_ = new QLabel("AA:BB:CC:DD:EE:FF");
     macLabel_->setStyleSheet(
         "QLabel { font-size: 12pt; font-family: monospace; color: #374151;"
@@ -392,7 +493,6 @@ Phase2Widget::Phase2Widget(QWidget* parent) : QWidget(parent)
 
     root->addWidget(card, 1);
 
-    // 버튼 행
     auto* btnRow = new QHBoxLayout();
     btnRow->setSpacing(16);
 
@@ -418,10 +518,8 @@ Phase2Widget::Phase2Widget(QWidget* parent) : QWidget(parent)
     btnRow->addWidget(okBtn_);
     root->addLayout(btnRow);
 
-    connect(okBtn_,     &QPushButton::clicked,
-            this, &Phase2Widget::onConfirm);
-    connect(cancelBtn_, &QPushButton::clicked,
-            this, &Phase2Widget::onCancel);
+    connect(okBtn_,     &QPushButton::clicked, this, &Phase2Widget::onConfirm);
+    connect(cancelBtn_, &QPushButton::clicked, this, &Phase2Widget::onCancel);
 }
 
 void Phase2Widget::setTargetMac(const QString& macStr) {
@@ -512,7 +610,6 @@ void Phase3Widget::showCompleted(bool isUpdate) {
                            : "등록이 완료되었습니다.");
     subLabel_->setText("잠시 후 처음 화면으로 돌아갑니다.");
 
-    // 3초 후 자동 복귀
     QTimer::singleShot(3000, this, [this]() {
         emit autoReturn();
     });
@@ -522,14 +619,13 @@ void Phase3Widget::showCompleted(bool isUpdate) {
 //  AdminPage
 // ════════════════════════════════════════════════
 
-AdminPage::AdminPage(Db* db, ApiClient* api, QWidget* parent)
-    : QWidget(parent), db_(db), api_(api)
+AdminPage::AdminPage(Db* db, QWidget* parent)
+    : QWidget(parent), db_(db)
 {
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(16, 16, 16, 16);
     root->setSpacing(12);
 
-    // 상단 툴바
     auto* topRow = new QHBoxLayout();
 
     searchEdit_ = new QLineEdit();
@@ -573,7 +669,6 @@ AdminPage::AdminPage(Db* db, ApiClient* api, QWidget* parent)
     topRow->addWidget(backBtn_);
     root->addLayout(topRow);
 
-    // 탭
     tabs_ = new QTabWidget();
     tabs_->setStyleSheet(
         "QTabBar::tab { padding: 8px 20px; font-size: 10pt; }"
@@ -610,16 +705,11 @@ AdminPage::AdminPage(Db* db, ApiClient* api, QWidget* parent)
     tabs_->addTab(userTable_,    "사용자");
     root->addWidget(tabs_, 1);
 
-    connect(searchBtn_, &QPushButton::clicked,
-            this, &AdminPage::onSearch);
-    connect(searchEdit_, &QLineEdit::returnPressed,
-            this, &AdminPage::onSearch);
-    connect(deleteBtn_, &QPushButton::clicked,
-            this, &AdminPage::onDeleteSelected);
-    connect(editBtn_,   &QPushButton::clicked,
-            this, &AdminPage::onEditSelected);
-    connect(backBtn_,   &QPushButton::clicked,
-            this, &AdminPage::onBack);
+    connect(searchBtn_, &QPushButton::clicked,  this, &AdminPage::onSearch);
+    connect(searchEdit_,&QLineEdit::returnPressed, this, &AdminPage::onSearch);
+    connect(deleteBtn_, &QPushButton::clicked,  this, &AdminPage::onDeleteSelected);
+    connect(editBtn_,   &QPushButton::clicked,  this, &AdminPage::onEditSelected);
+    connect(backBtn_,   &QPushButton::clicked,  this, &AdminPage::onBack);
 }
 
 void AdminPage::refresh() {
@@ -729,8 +819,7 @@ void AdminPage::onDeleteSelected() {
 
 void AdminPage::onEditSelected() {
     if (tabs_->currentIndex() != 0) {
-        QMessageBox::information(this, "안내",
-                                 "스테이션 탭에서만 수정 가능합니다.");
+        QMessageBox::information(this, "안내", "스테이션 탭에서만 수정 가능합니다.");
         return;
     }
     int row = stationTable_->currentRow();
@@ -780,7 +869,7 @@ void AdminPage::onEditSelected() {
             nameEdit->text().toStdString(),
             phoneEdt->text().toStdString(),
             Db::typeStringToCode(
-                typeKeys.value(typeCmb->currentIndex(),"other").toStdString()));
+                typeKeys.value(typeCmb->currentIndex(), "other").toStdString()));
         reloadStations("");
     }
 }
@@ -793,8 +882,8 @@ void AdminPage::onBack() {
 //  KioskWindow
 // ════════════════════════════════════════════════
 
-KioskWindow::KioskWindow(Db* db, ApiClient* api, QWidget* parent)
-    : QMainWindow(parent), db_(db), api_(api)
+KioskWindow::KioskWindow(Db* db, QWidget* parent)
+    : QMainWindow(parent), db_(db)
 {
     setWindowTitle("MAC 수집 키오스크");
     resize(1024, 768);
@@ -812,7 +901,7 @@ KioskWindow::KioskWindow(Db* db, ApiClient* api, QWidget* parent)
     p1_    = new Phase1Widget(db_, this);
     p2_    = new Phase2Widget(this);
     p3_    = new Phase3Widget(this);
-    admin_ = new AdminPage(db_, api_, this);
+    admin_ = new AdminPage(db_, this);
 
     stack_->addWidget(p1_);     // 0
     stack_->addWidget(p2_);     // 1
@@ -823,7 +912,6 @@ KioskWindow::KioskWindow(Db* db, ApiClient* api, QWidget* parent)
     buildStatusBar();
     rootLayout->addWidget(statusBar_);
 
-    // ── 시그널 연결 ──
     connect(p1_, &Phase1Widget::registerRequested,
             this, &KioskWindow::goPhase2Register);
     connect(p1_, &Phase1Widget::updateRequested,
@@ -831,8 +919,8 @@ KioskWindow::KioskWindow(Db* db, ApiClient* api, QWidget* parent)
     connect(p1_, &Phase1Widget::candidateCountChanged,
             this, &KioskWindow::updateDeviceCount);
 
-    // connect(p2_, &Phase2Widget::confirmed,
-    //         this, &KioskWindow::onPhase2Confirmed);
+    connect(p2_, &Phase2Widget::confirmed,   // 버그 수정: 주석 해제
+            this, &KioskWindow::onPhase2Confirmed);
     connect(p2_, &Phase2Widget::canceled,
             this, &KioskWindow::goPhase1);
 
@@ -842,23 +930,18 @@ KioskWindow::KioskWindow(Db* db, ApiClient* api, QWidget* parent)
     connect(admin_, &AdminPage::backRequested,
             this, &KioskWindow::goPhase1);
 
-    // connect(api_, &ApiClient::registerSuccess,
-    //         this, &KioskWindow::onRegisterSuccess);
-    // connect(api_, &ApiClient::registerFailed,
-    //         this, &KioskWindow::onRegisterFailed);
-    // connect(api_, &ApiClient::updateSuccess,
-    //         this, &KioskWindow::onUpdateSuccess);
-    // connect(api_, &ApiClient::updateFailed,
-    //         this, &KioskWindow::onUpdateFailed);
-    // connect(api_, &ApiClient::checkResult,
-    //         this, &KioskWindow::onCheckResult);
-
     elapsedTimer_ = new QTimer(this);
     connect(elapsedTimer_, &QTimer::timeout,
             this, &KioskWindow::updateElapsed);
     elapsedTimer_->start(1000);
 
     goPhase1();
+}
+
+// ── X 버튼 클릭 시 앱 완전 종료 ──
+void KioskWindow::closeEvent(QCloseEvent* event) {
+    QApplication::quit();
+    event->accept();
 }
 
 // ── Header ──
@@ -989,28 +1072,15 @@ void KioskWindow::buildStatusBar() {
 //  화면 전환 + 음성 재생
 // ════════════════════════════════════════════════
 
-// ── Phase 1: 감지 화면 ──
-// 음성: "휴대폰의 와이파이를 껐다가 켜주세요. 기기를 자동으로 감지합니다."
 void KioskWindow::goPhase1() {
     stack_->setCurrentIndex(0);
     setChromeVisible(true);
     updatePhaseIndicator(1);
-    isUpdateMode_ = false;
-
-    // 최초 진입 및 Phase3 복귀 시에만 스캔 안내 음성 재생
-    // (관리자 화면 복귀 시에는 재생하지 않음)
-    if (!phase1Entered_) {
-        phase1Entered_ = true;
-        AudioPlayer::instance().play({":/audio/scan_guide.mp3"});
-    } else {
-        // Phase3 자동복귀 또는 취소 후 돌아올 때 재생
-        AudioPlayer::instance().play({":/audio/scan_guide.mp3"});
-    }
+    isUpdateMode_  = false;
+    phase1Entered_ = true;
+    AudioPlayer::instance().play({":/audio/scan_guide.mp3"});  // 경로 버그 수정
 }
 
-// ── Phase 2: 신규 등록 입력 화면 ──
-// 음성: "이름, 전화번호, 장비 유형을 입력한 후 확인 버튼을 눌러주세요.
-//        MAC 주소는 자동으로 입력됩니다."
 void KioskWindow::goPhase2Register(QString macStr, QString vendor,
                                    QString timestamp)
 {
@@ -1024,21 +1094,16 @@ void KioskWindow::goPhase2Register(QString macStr, QString vendor,
     p2_->prefill("", "", "phone");
     p2_->focusFirstInput();
 
-    // 음성: 등록 입력 안내
     AudioPlayer::instance().play({":/audio/input_guide.mp3"});
 
     stack_->setCurrentIndex(1);
     updatePhaseIndicator(2);
 }
 
-// ── Phase 2: 변경 입력 화면 (시나리오 2→3) ──
-// 음성: "화면에 표시된 기존 정보를 확인해주세요.
-//        정보 변경이 필요하시면 변경 후 확인 버튼을 눌러주세요."
 void KioskWindow::goPhase2Update(QString macStr) {
     isUpdateMode_ = true;
     pendingMac_   = macStr;
 
-    // DB에서 기존 정보 조회
     auto stations = db_->searchStations(macStr.toStdString());
     QString name, phone, deviceType, vendor;
     if (!stations.empty()) {
@@ -1055,28 +1120,21 @@ void KioskWindow::goPhase2Update(QString macStr) {
     p2_->prefill(name, phone, deviceType);
     p2_->focusFirstInput();
 
-    // 음성: 변경 화면 안내
     AudioPlayer::instance().play({":/audio/update_guide.mp3"});
 
     stack_->setCurrentIndex(1);
     updatePhaseIndicator(2);
 }
 
-// ── Phase 3: 완료 화면 ──
-// 음성(등록): "기기가 정상적으로 등록되었습니다."
-// 음성(변경): "정보가 성공적으로 변경되었습니다."
 void KioskWindow::goPhase3() {
     stack_->setCurrentIndex(2);
     updatePhaseIndicator(3);
     p3_->showCompleted(isUpdateMode_);
 
-    if (isUpdateMode_) {
-        // 음성: 변경 완료
+    if (isUpdateMode_)
         AudioPlayer::instance().play({":/audio/update_complete.mp3"});
-    } else {
-        // 음성: 등록 완료
+    else
         AudioPlayer::instance().play({":/audio/register_complete.mp3"});
-    }
 }
 
 void KioskWindow::goAdmin() {
@@ -1086,25 +1144,19 @@ void KioskWindow::goAdmin() {
     setChromeVisible(false);
 }
 
-// ── Phase2 확인 처리 ──
+// ── Phase2 확인 처리 (로컬 DB 저장, timestamp: yyMMddHHmm) ──
 void KioskWindow::onPhase2Confirmed(QString macStr, QString name,
                                     QString phone, QString deviceType)
 {
-    QString now = QDateTime::currentDateTime().toString(Qt::ISODate);
+    // timestamp 형식: yyMMddHHmm (예: 2506171430)
+    QString now = QDateTime::currentDateTime().toString("yyMMddHHmm");
 
     if (isUpdateMode_) {
-        // 시나리오 3: PUT /v1/assets/{mac}
-        // api_->updateAsset(macStr, name, phone,
-        //                   pendingRssi_, pendingVendor_, now);
         db_->updateStation(Mac(macStr.toUtf8().constData()),
                            name.toStdString(),
                            phone.toStdString(),
                            Db::typeStringToCode(deviceType.toStdString()));
     } else {
-        // 시나리오 1: POST /v1/assets/register
-        // api_->registerAsset(macStr, name, phone,
-        //                     pendingRssi_, pendingVendor_, now);
-
         StationEntry se;
         se.mac          = Mac(macStr.toUtf8().constData());
         se.name         = name.toStdString();
@@ -1114,75 +1166,36 @@ void KioskWindow::onPhase2Confirmed(QString macStr, QString name,
         se.registeredAt = now.toStdString();
         db_->addStation(se);
     }
-}
 
-// ── API 콜백 ──
-
-void KioskWindow::onRegisterSuccess(QString mac, QString registeredAt) {
-    Q_UNUSED(mac)
-    Q_UNUSED(registeredAt)
     goPhase3();
 }
 
-void KioskWindow::onRegisterFailed(QString mac, QString reason) {
-    // 서버 실패 시 경고 후에도 로컬 DB 저장은 완료됐으므로 Phase3 진입
-    QMessageBox::warning(this, "등록 실패",
-                         QString("MAC: %1\n사유: %2").arg(mac, reason));
-    goPhase3();
-}
-
-void KioskWindow::onUpdateSuccess(QString mac, QString updatedAt) {
-    Q_UNUSED(mac)
-    Q_UNUSED(updatedAt)
-    goPhase3();
-}
-
-void KioskWindow::onUpdateFailed(QString mac, QString reason) {
-    QMessageBox::warning(this, "변경 실패",
-                         QString("MAC: %1\n사유: %2").arg(mac, reason));
-    goPhase3();
-}
-
-// ── 시나리오 2: checkAsset 결과 수신 ──
-// 음성(중복): "이미 등록된 기기가 감지되었습니다. 기존 등록 정보를 확인해 주세요."
-void KioskWindow::onCheckResult(QString mac, bool exists,
-                                QJsonObject data)
-{
-    if (exists) {
-        QString ownerName    = data["owner_name"].toString();
-        QString phone        = data["phone_number"].toString();
-        QString vendor       = data["vendor"].toString();
-        int     rssi         = data["rssi"].toInt();
-        QString registeredAt = data["registered_at"].toString();
-
-        // 신규로 추가된 행을 중복 행으로 교체
-        p1_->removeCandidate(mac);
-        p1_->showDuplicateNotice(mac, ownerName, phone,
-                                 vendor, rssi, registeredAt);
-
-        // 음성: 중복 감지 안내
-        AudioPlayer::instance().play({":/audio/duplicate_notice.mp3"});
-    }
-    // exists == false 이면 addCandidate 상태 그대로 유지
-}
-
-// ── 수집 이벤트 ──
-// 신규 MAC 감지 음성:
-//   "새로운 기기가 감지되었습니다. 등록 버튼을 눌러 기기를 등록해 주세요."
+// ── 신규 MAC 감지: 로컬 DB 중복 확인 ──
 void KioskWindow::onCandidateFound(QString macStr, int rssi,
                                    QString vendor, QString timestamp)
 {
     pendingRssi_ = rssi;
 
-    // UI에 신규 행 먼저 추가
-    p1_->addCandidate(macStr, rssi, vendor, timestamp);
+    bool exists = db_->macExists(Mac(macStr.toUtf8().constData()));
 
-    // 서버에 중복 확인 요청 (응답에 따라 onCheckResult에서 행 교체)
-    api_->checkAsset(macStr);
-
-    // 음성: 신규 MAC 감지 안내
-    // (중복이면 onCheckResult에서 duplicate_notice.mp3로 덮어씀)
-    AudioPlayer::instance().play({":/audio/mac_detected.mp3"});
+    if (exists) {
+        // 로컬 DB에서 기존 정보 조회 후 중복 행 표시
+        auto stations = db_->searchStations(macStr.toStdString());
+        if (!stations.empty()) {
+            const auto& s = stations[0];
+            p1_->showDuplicateNotice(
+                macStr,
+                QString::fromStdString(s.name),
+                QString::fromStdString(s.phoneNum),
+                QString::fromStdString(s.vendor),
+                rssi,
+                QString::fromStdString(s.registeredAt));
+            AudioPlayer::instance().play({":/audio/duplicate_notice.mp3"});
+        }
+    } else {
+        p1_->addCandidate(macStr, rssi, vendor, timestamp);
+        AudioPlayer::instance().play({":/audio/mac_detected.mp3"});
+    }
 }
 
 void KioskWindow::onCaptureError(QString msg) {

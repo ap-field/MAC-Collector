@@ -9,7 +9,7 @@
 #include <QDateTime>
 
 CaptureWorker::CaptureWorker(QObject* parent)
-    : QObject(parent), parser_(-20), db_(nullptr), stop_(false) {}
+    : QObject(parent), parser_(-60), db_(nullptr), stop_(false) {}
 
 CaptureWorker::~CaptureWorker() = default;
 
@@ -20,8 +20,9 @@ void CaptureWorker::configure(const QString& iface, int rssiThreshold, Db* db) {
 }
 
 void CaptureWorker::requestStop() {
-    stop_.store(true);
-    if (pcap_) pcap_breakloop(pcap_);
+    stop_ = true;          // stop_ 으로 통일
+    if (pcap_)
+        pcap_breakloop(pcap_);  // pcap_ 으로 통일
 }
 
 void CaptureWorker::run() {
