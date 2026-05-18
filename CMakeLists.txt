@@ -46,6 +46,13 @@ target_link_libraries(mac-collector
         sqlite3
 )
 
+# setcap 절대경로로 지정
+add_custom_command(TARGET mac-collector POST_BUILD
+    COMMAND /usr/sbin/setcap cap_net_raw,cap_net_admin=eip $<TARGET_FILE:mac-collector>
+    COMMENT "Setting packet capture capability..."
+)
+
+
 install(TARGETS mac-collector
     BUNDLE  DESTINATION
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
