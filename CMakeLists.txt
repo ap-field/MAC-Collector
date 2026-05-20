@@ -10,26 +10,24 @@ qt_add_executable(mac-collector
     WIN32 MACOSX_BUNDLE
 
     include/capture.h
-    include/collectorwindow.h
     include/db.h
     include/dot11hdr.h
     include/mac.h
     include/parser.h
     include/radiotaphdr.h
     include/ui.h
-    include/vendor_lookup.h
 
     src/capture.cpp
-    src/collectorwindow.cpp
     src/db.cpp
     src/mac.cpp
     src/main.cpp
     src/parser.cpp
     src/ui.cpp
-    src/vendor_lookup.cpp
 
     resources.qrc
     setup.sh
+    src/api_client.cpp
+    include/api_client.h
 )
 
 target_include_directories(mac-collector PRIVATE
@@ -46,15 +44,19 @@ target_link_libraries(mac-collector
         sqlite3
 )
 
-# setcap 절대경로로 지정
+# 실행파일 위치 고정: 프로젝트 루트/bin
+set(FIXED_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin")
+set_target_properties(mac-collector PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${FIXED_OUTPUT_DIR}"
+)
+
 add_custom_command(TARGET mac-collector POST_BUILD
-    COMMAND /usr/sbin/setcap cap_net_raw,cap_net_admin=eip $<TARGET_FILE:mac-collector>
+    COMMAND /usr/sbin/setcap cap_net_raw,cap_net_admin=eip "${FIXED_OUTPUT_DIR}/mac-collector"
     COMMENT "Setting packet capture capability..."
 )
 
-
 install(TARGETS mac-collector
-    BUNDLE  DESTINATION
+    BUNDLE  DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )

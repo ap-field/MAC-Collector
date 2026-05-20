@@ -7,24 +7,13 @@
 
 #include "mac.h"
 
-struct UserEntry {
-    std::string name;
-    std::string phoneNum;
-};
-
 struct StationEntry {
     Mac         mac;
     std::string name;
     std::string phoneNum;
-    int         type;          // 1=notebook 2=phone 3=tablet 4=iot 99=other
-    std::string vendor;
-    std::string registeredAt;  // ISO 8601
-    std::string updatedAt;     // ISO 8601
-};
-
-struct ApEntry {
-    Mac mac;
-    int other;
+    int         type;          // 0=other 1=notebook 2=phone 3=tablet 4=iot
+    std::string registeredAt;
+    std::string updatedAt;
 };
 
 struct sqlite3;
@@ -43,26 +32,16 @@ public:
 
     bool macExists(const Mac& mac);
 
-    bool addUser(const UserEntry& u);
     bool addStation(const StationEntry& s);
-    bool addAp(const ApEntry& a);
-
     bool updateStation(const Mac& mac,
                        const std::string& name,
                        const std::string& phone,
                        int type);
 
-    std::vector<UserEntry>    listUsers();
     std::vector<StationEntry> listStations();
-    std::vector<ApEntry>      listAps();
-
     std::vector<StationEntry> searchStations(const std::string& keyword);
-    std::vector<ApEntry>      searchAps(const std::string& keyword);
 
-    bool removeStation(const Mac& mac, const std::string& name, const std::string& phoneNum);
-    bool removeAp(const Mac& mac);
-
-    bool exportCsv(const std::string& path);
+    bool removeStation(const Mac& mac);
 
     static int         typeStringToCode(const std::string& s);
     static std::string typeCodeToString(int code);

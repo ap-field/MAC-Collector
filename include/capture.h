@@ -10,7 +10,7 @@
 #include "parser.h"
 
 struct pcap;
-typedef struct pcap pcap_t;   // <pcap.h> 는 .cpp 에서만 include
+typedef struct pcap pcap_t;
 
 class Db;
 
@@ -27,7 +27,7 @@ public slots:
     void run();
 
 signals:
-    void candidateFound(QString macStr, int rssi, QString vendor, QString timestamp);
+    void candidateFound(QString macStr, int rssi, QString timestamp);
     void errorOccurred(QString msg);
     void finished();
 

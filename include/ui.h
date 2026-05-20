@@ -10,7 +10,6 @@ class QLineEdit;
 class QComboBox;
 class QPushButton;
 class QLabel;
-class QTabWidget;
 class QTimer;
 class QMediaPlayer;
 class QAudioOutput;
@@ -25,7 +24,7 @@ public:
     explicit SettingsDialog(QWidget* parent = nullptr);
 
     QString iface()         const;
-    int     channel()       const;   // 0 = 변경 안함
+    int     channel()       const;
     int     rssiThreshold() const;
     QString dbPath()        const;
 
@@ -33,9 +32,12 @@ private slots:
     void onOk();
 
 private:
+    void loadSettings();
+    void saveSettings();
+
     QComboBox* ifaceCombo_;
-    QSpinBox*  channelSpin_;
-    QSpinBox*  rssiSpin_;
+    QLineEdit* channelEdit_;
+    QLineEdit* rssiEdit_;
     QLineEdit* dbEdit_;
 };
 
@@ -61,14 +63,13 @@ private:
 class Phase1Widget : public QWidget {
     Q_OBJECT
 public:
-    explicit Phase1Widget(Db* db, QWidget* parent = nullptr);
+    explicit Phase1Widget(QWidget* parent = nullptr);
 
     void addCandidate(const QString& macStr, int rssi,
-                      const QString& vendor, const QString& timestamp);
+                      const QString& timestamp);
     void showDuplicateNotice(const QString& macStr,
                              const QString& ownerName,
                              const QString& phone,
-                             const QString& vendor,
                              int rssi,
                              const QString& registeredAt);
     void removeCandidate(const QString& macStr);
@@ -76,7 +77,7 @@ public:
     int  candidateCount() const;
 
 signals:
-    void registerRequested(QString macStr, QString vendor, QString timestamp);
+    void registerRequested(QString macStr, QString timestamp);
     void updateRequested(QString macStr);
     void candidateCountChanged(int count);
 
@@ -86,7 +87,6 @@ private slots:
 
 private:
     QTableWidget* table_;
-    Db*           db_;
     QLineEdit*    testEdit_        = nullptr;
     QLabel*       testResultLabel_ = nullptr;
 };
@@ -140,7 +140,7 @@ private:
 class AdminPage : public QWidget {
     Q_OBJECT
 public:
-    explicit AdminPage(Db* db, QWidget* parent = nullptr);  // ApiClient 제거
+    explicit AdminPage(Db* db, QWidget* parent = nullptr);
     void refresh();
     void focusSearch();
 
@@ -155,38 +155,32 @@ private slots:
 
 private:
     Db*           db_;
-    QTabWidget*   tabs_;
-    QTableWidget* stationTable_;
-    QTableWidget* apTable_;
-    QTableWidget* userTable_;
+    QTableWidget* table_;
     QLineEdit*    searchEdit_;
     QPushButton*  searchBtn_;
     QPushButton*  deleteBtn_;
     QPushButton*  editBtn_;
     QPushButton*  backBtn_;
 
-    void reloadStations(const QString& keyword);
-    void reloadAps(const QString& keyword);
-    void reloadUsers();
+    void reloadTable(const QString& keyword);
 };
 
 // ────────── KioskWindow ──────────
 class KioskWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit KioskWindow(Db* db, QWidget* parent = nullptr);  // ApiClient 제거
+    explicit KioskWindow(Db* db, QWidget* parent = nullptr);
 
 public slots:
-    void onCandidateFound(QString macStr, int rssi,
-                          QString vendor, QString timestamp);
+    void onCandidateFound(QString macStr, int rssi, QString timestamp);
     void onCaptureError(QString msg);
 
 protected:
-    void closeEvent(QCloseEvent* event) override;  // X 버튼 종료 처리
+    void closeEvent(QCloseEvent* event) override;
 
 private slots:
     void goPhase1();
-    void goPhase2Register(QString macStr, QString vendor, QString timestamp);
+    void goPhase2Register(QString macStr, QString timestamp);
     void goPhase2Update(QString macStr);
     void goPhase3();
     void goAdmin();
@@ -209,7 +203,6 @@ private:
     bool    isUpdateMode_     = false;
     bool    phase1Entered_    = false;
     QString pendingMac_;
-    QString pendingVendor_;
     QString pendingTimestamp_;
     int     pendingRssi_      = 0;
 

@@ -1,7 +1,5 @@
 #include "capture.h"
 #include "db.h"
-#include "vendor_lookup.h"
-
 #include <pcap.h>
 
 #include <cstring>
@@ -65,10 +63,9 @@ void CaptureWorker::run() {
         // capture 레이어는 emit만 담당
 
         QString macStr = QString::fromStdString(r.addr2.toString());
-        QString vendor = VendorLookup::instance().lookup(macStr);
-        QString ts     = QDateTime::currentDateTime().toString(Qt::ISODate);
+        QString ts     = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
 
-        emit candidateFound(macStr, r.rssi, vendor, ts);
+        emit candidateFound(macStr, r.rssi, ts);
     }
 
     pcap_close(pcap_);

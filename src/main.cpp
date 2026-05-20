@@ -25,7 +25,6 @@ int main(int argc, char** argv) {
     std::signal(SIGINT,  signalHandler);
     std::signal(SIGTERM, signalHandler);
 
-    // ── 시작 전 설정 다이얼로그 ──
     SettingsDialog settingsDlg;
     if (settingsDlg.exec() != QDialog::Accepted)
         return 0;
@@ -35,7 +34,6 @@ int main(int argc, char** argv) {
     const int     rssi    = settingsDlg.rssiThreshold();
     const QString dbPath  = settingsDlg.dbPath();
 
-    // 채널 설정 (0이면 변경 안함)
     if (channel > 0) {
         QProcess proc;
         proc.start("iwconfig", {iface, "channel", QString::number(channel)});
@@ -47,7 +45,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    // ── DB 열기 ──
     Db db;
     if (!db.open(dbPath.toStdString())) {
         QMessageBox::critical(nullptr, "DB 오류",
@@ -55,11 +52,9 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    // ── 메인 윈도우 ──
     KioskWindow win(&db);
     win.show();
 
-    // ── 캡처 워커 스레드 ──
     QThread   thread;
     auto* worker = new CaptureWorker();
     worker->configure(iface, rssi, &db);
@@ -76,7 +71,6 @@ int main(int argc, char** argv) {
     QObject::connect(&thread, &QThread::finished,
                      worker,  &QObject::deleteLater);
 
-    // X 버튼(closeEvent) → quit() → aboutToQuit → 워커 정지
     QObject::connect(&app, &QCoreApplication::aboutToQuit, [&]() {
         worker->requestStop();
         thread.quit();
