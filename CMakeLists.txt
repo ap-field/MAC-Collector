@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
 project(mac-collector LANGUAGES CXX)
 
-set(CMAKE_PREFIX_PATH "/home/kali/Qt/6.11.0/gcc_64/lib/cmake")
+set(CMAKE_PREFIX_PATH "$ENV{HOME}/Qt/6.11.0/gcc_64/lib/cmake" CACHE PATH "Qt6 CMake config directory")
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Network Multimedia)
 
@@ -48,11 +48,6 @@ target_link_libraries(mac-collector
 set(FIXED_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin")
 set_target_properties(mac-collector PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${FIXED_OUTPUT_DIR}"
-)
-
-add_custom_command(TARGET mac-collector POST_BUILD
-    COMMAND /usr/sbin/setcap cap_net_raw,cap_net_admin=eip "${FIXED_OUTPUT_DIR}/mac-collector"
-    COMMENT "Setting packet capture capability..."
 )
 
 install(TARGETS mac-collector
