@@ -30,6 +30,20 @@ qt_add_executable(mac-collector
     include/api_client.h
 )
 
+qt_add_resources(mac-collector "resources"
+    PREFIX "/audio"
+    BASE "${CMAKE_SOURCE_DIR}/audio"
+    FILES
+        "${CMAKE_SOURCE_DIR}/audio/scan_guide.wav"
+        "${CMAKE_SOURCE_DIR}/audio/scan_guide.mp3"
+        "${CMAKE_SOURCE_DIR}/audio/mac_detected.mp3"
+        "${CMAKE_SOURCE_DIR}/audio/input_guide.mp3"
+        "${CMAKE_SOURCE_DIR}/audio/register_complete.mp3"
+        "${CMAKE_SOURCE_DIR}/audio/duplicate_notice.mp3"
+        "${CMAKE_SOURCE_DIR}/audio/update_guide.mp3"
+        "${CMAKE_SOURCE_DIR}/audio/update_complete.mp3"
+)
+
 target_include_directories(mac-collector PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
