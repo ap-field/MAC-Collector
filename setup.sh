@@ -25,8 +25,10 @@ sudo apt-get update -qq
 
 # 개별 설치 (없는 패키지는 건너뜀)
 PACKAGES=(
+    cmake
     libpcap-dev
     libsqlite3-dev
+    fonts-nanum
     ibus
     ibus-hangul
     libibus-1.0-dev
@@ -36,6 +38,8 @@ PACKAGES=(
     pulseaudio
     libpulse-dev
     ffmpeg
+    qt6-base-dev
+    qt6-multimedia-dev
     qt6-qpa-plugins
     gstreamer1.0-plugins-base
     gstreamer1.0-plugins-good
@@ -86,6 +90,7 @@ if cmake -S "$SCRIPT_DIR" -B "$SCRIPT_DIR/build" && cmake --build "$SCRIPT_DIR/b
 else
     echo "  ⚠ 빌드 실패. 수동으로 빌드하세요:"
     echo "    cd $SCRIPT_DIR && cmake -S . -B build && cmake --build build -j\$(nproc)"
+    exit 1
 fi
 
 # ── 4. setcap 설정 ──
