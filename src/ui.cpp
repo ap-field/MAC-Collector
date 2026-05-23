@@ -319,7 +319,11 @@ Phase1Widget::Phase1Widget(QWidget* parent)
     table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    // Interactive: setCellWidget은 dataChanged를 발생시키지 않아 ResizeToContents가
+    // 무시되므로, 직접 resizeColumnToContents(3)를 호출할 수 있는 모드로 설정
+    table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Interactive);
+    // 240px: 변경버튼(~80) + 배지(~140) + 여백
+    table_->setColumnWidth(3, 240);
 
     table_->horizontalHeader()->setHighlightSections(false);
     table_->horizontalHeader()->setFixedHeight(36);
@@ -367,6 +371,9 @@ void Phase1Widget::addCandidate(const QString& macStr, int rssi,
     regBtn->setProperty("macStr",    macStr);
     regBtn->setProperty("timestamp", timestamp);
     regBtn->setCursor(Qt::PointingHandCursor);
+    // setMinimumWidth: CSS padding은 Qt 레이아웃 sizeHint에 반영 안 되므로 명시적으로 지정
+    regBtn->setMinimumSize(90, 34);
+    regBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     regBtn->setStyleSheet(
         "QPushButton { background: #2563EB; color: white; border: none;"
         "  border-radius: 6px; padding: 6px 16px;"
@@ -375,6 +382,9 @@ void Phase1Widget::addCandidate(const QString& macStr, int rssi,
     connect(regBtn, &QPushButton::clicked,
             this, &Phase1Widget::onRegisterButtonClicked);
     table_->setCellWidget(row, 3, regBtn);
+    // resizeColumnToContents(3) 호출 금지:
+    // Qt의 sizeHintForColumn은 setCellWidget 위젯을 포함하지 않아
+    // 빈 헤더("")로만 계산 → 컬럼을 거의 0으로 축소하는 역효과 발생
 
     emit candidateCountChanged(table_->rowCount());
 }
@@ -409,8 +419,11 @@ void Phase1Widget::showDuplicateNotice(const QString& macStr,
     hlay->setContentsMargins(4, 2, 4, 2);
     hlay->setSpacing(6);
 
-    auto* badge = new QLabel(
-        QString("✅ %1 / %2").arg(ownerName, phone));
+    const QString badgeText = QString("✅ %1  %2").arg(ownerName, phone);
+    auto* badge = new QLabel(badgeText);
+    badge->setToolTip(badgeText);          // 잘릴 때 툴팁으로 전체 확인
+    badge->setMinimumWidth(0);             // 레이아웃이 강제로 0으로 줄이지 않도록
+    badge->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     badge->setStyleSheet(
         "QLabel { color: #065F46; background: #D1FAE5;"
         "  border-radius: 6px; padding: 4px 10px;"
@@ -420,7 +433,8 @@ void Phase1Widget::showDuplicateNotice(const QString& macStr,
     auto* updBtn = new QPushButton("변경");
     updBtn->setProperty("macStr", macStr);
     updBtn->setCursor(Qt::PointingHandCursor);
-    updBtn->setMinimumSize(60, 32);
+    updBtn->setMinimumSize(80, 32);
+    updBtn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
     updBtn->setStyleSheet(
         "QPushButton { background: #D97706; color: white; border: none;"
         "  border-radius: 6px; padding: 4px 14px;"
@@ -432,6 +446,7 @@ void Phase1Widget::showDuplicateNotice(const QString& macStr,
     hlay->addWidget(badge, 1);
     hlay->addWidget(updBtn, 0);
     table_->setCellWidget(row, 3, cell);
+    // resizeColumnToContents(3) 호출 금지 (위 "등록" 버튼 주석 참고)
 
     emit candidateCountChanged(table_->rowCount());
 }
@@ -1138,6 +1153,22 @@ void KioskWindow::onPhase2Confirmed(QString macStr, QString name,
         se.updatedAt    = now.toStdString();
         db_->addStation(se);
     }
+
+    // DB 저장 직후 Phase1 테이블 갱신:
+    // seenInSession_ 때문에 candidateFound가 재발생하지 않으므로
+    // 직접 행을 교체해야 "등록" 버튼 → 이름/전화번호 + "변경" 버튼으로 반영된다.
+    p1_->removeCandidate(macStr);
+    auto updated = db_->searchStations(macStr.toStdString());
+    if (!updated.empty()) {
+        const auto& s = updated[0];
+        p1_->showDuplicateNotice(
+            macStr,
+            QString::fromStdString(s.name),
+            QString::fromStdString(s.phoneNum),
+            pendingRssi_,
+            QString::fromStdString(s.registeredAt));
+    }
+
     goPhase3();
 }
 

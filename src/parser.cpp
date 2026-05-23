@@ -76,7 +76,7 @@ void Parser::setRssiThreshold(int dbm) {
 
 Parser::Result Parser::parse(const uint8_t* data, int len) const
 {
-    Result r{ false, Mac{}, 0, 0xFF };
+    Result r{ false, Mac{}, 0, FrameKind::Auth };
 
     if (!data || len < 16) return r;
 
@@ -90,16 +90,47 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
     std::memcpy(&hdr, data + rtLen, sizeof(hdr));
 
     uint16_t fc      = hdr.frameControl;
-    uint8_t  type    = (fc >> 2) & 0x03;
-    uint8_t  subtype = (fc >> 4) & 0x0F;
+    uint8_t  type    = Dot11::frameType(fc);
+    uint8_t  subtype = Dot11::frameSubtype(fc);
 
-    // 관리 프레임 + Probe Request 만 통과
-    if (type != Dot11::TYPE_MGT)              return r;
-    if (subtype != Dot11::SUBTYPE_PROBE_REQ)  return r;
+    // STA→AP 방향(ToDS=1, FromDS=0)만 처리 — 클라이언트 MAC을 addr2로 확보
+    if (!Dot11::toDS(fc) || Dot11::fromDS(fc)) return r;
 
-    r.ok      = true;
-    r.addr2   = Mac(hdr.addr2);
-    r.rssi    = rssi;
-    r.subtype = subtype;
+    if (type == Dot11::TYPE_MGT) {
+        if (subtype == Dot11::SUBTYPE_AUTH) {
+            r.kind = Parser::FrameKind::Auth;
+        } else if (subtype == Dot11::SUBTYPE_ASSOC_REQ ||
+                   subtype == Dot11::SUBTYPE_REASSOC_REQ) {
+            r.kind = Parser::FrameKind::Assoc;
+        } else {
+            return r;
+        }
+    } else if (type == Dot11::TYPE_DATA) {
+        // 암호화된 프레임은 LLC 헤더를 읽을 수 없음
+        if (Dot11::isProtected(fc))  return r;
+        // 페이로드 없는 Null/CF 프레임 제외
+        if (Dot11::isNullData(fc))   return r;
+
+        // LLC/SNAP 오프셋 계산 (802.11 기본 헤더 24B + QoS 2B)
+        int llcOff = rtLen + 24;
+        if (Dot11::isQoS(fc)) llcOff += 2;
+        if (len < llcOff + 8) return r;
+
+        // LLC/SNAP: AA AA 03 <OUI 3B> <EtherType 2B>
+        if (data[llcOff]   != 0xAA ||
+            data[llcOff+1] != 0xAA ||
+            data[llcOff+2] != 0x03) return r;
+
+        uint16_t etype = (static_cast<uint16_t>(data[llcOff+6]) << 8) | data[llcOff+7];
+        if (etype != Dot11::ETHERTYPE_EAPOL) return r;
+
+        r.kind = Parser::FrameKind::Eapol;
+    } else {
+        return r;
+    }
+
+    r.ok    = true;
+    r.addr2 = Mac(hdr.addr2);
+    r.rssi  = rssi;
     return r;
 }

@@ -7,4 +7,4 @@ bin/
 .qtcreator/
 CMakeFiles/
 CMakeCache.txt
-run.sh
+run.shMAC_address.db

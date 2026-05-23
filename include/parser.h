@@ -5,11 +5,13 @@
 
 class Parser {
 public:
+    enum class FrameKind : uint8_t { Auth, Assoc, Eapol };
+
     struct Result {
-        bool     ok;       // 파싱 성공 + RSSI threshold + Probe Req 통과
-        Mac      addr2;    // 송신 Station MAC
-        int      rssi;     // dBm
-        uint8_t  subtype;  // 0x04=Probe Req
+        bool      ok;      // 파싱 성공 + RSSI threshold + 대상 프레임 통과
+        Mac       addr2;   // 송신 Station MAC
+        int       rssi;    // dBm
+        FrameKind kind;    // Auth / Assoc(Re) / Eapol
     };
 
     explicit Parser(int rssiThresholdDbm);

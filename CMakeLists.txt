@@ -35,13 +35,12 @@ qt_add_resources(mac-collector "resources"
     BASE "${CMAKE_SOURCE_DIR}/audio"
     FILES
         "${CMAKE_SOURCE_DIR}/audio/scan_guide.wav"
-        "${CMAKE_SOURCE_DIR}/audio/scan_guide.mp3"
-        "${CMAKE_SOURCE_DIR}/audio/mac_detected.mp3"
-        "${CMAKE_SOURCE_DIR}/audio/input_guide.mp3"
-        "${CMAKE_SOURCE_DIR}/audio/register_complete.mp3"
-        "${CMAKE_SOURCE_DIR}/audio/duplicate_notice.mp3"
-        "${CMAKE_SOURCE_DIR}/audio/update_guide.mp3"
-        "${CMAKE_SOURCE_DIR}/audio/update_complete.mp3"
+        "${CMAKE_SOURCE_DIR}/audio/mac_detected.wav"
+        "${CMAKE_SOURCE_DIR}/audio/input_guide.wav"
+        "${CMAKE_SOURCE_DIR}/audio/register_complete.wav"
+        "${CMAKE_SOURCE_DIR}/audio/duplicate_notice.wav"
+        "${CMAKE_SOURCE_DIR}/audio/update_guide.wav"
+        "${CMAKE_SOURCE_DIR}/audio/update_complete.wav"
 )
 
 target_include_directories(mac-collector PRIVATE
@@ -63,6 +62,16 @@ set(FIXED_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin")
 set_target_properties(mac-collector PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${FIXED_OUTPUT_DIR}"
 )
+
+# setcap은 root 권한이 필요하므로 POST_BUILD 자동 실행 불가.
+# Qt Creator: Projects → Build Steps에 "set-caps" 타겟 추가하거나
+# 터미널에서: cmake --build build --target set-caps
+add_custom_target(set-caps
+    COMMAND sudo setcap cap_net_raw,cap_net_admin=eip "${FIXED_OUTPUT_DIR}/mac-collector"
+    COMMENT "Applying cap_net_raw,cap_net_admin capabilities to binary..."
+    VERBATIM
+)
+add_dependencies(set-caps mac-collector)
 
 install(TARGETS mac-collector
     BUNDLE  DESTINATION .

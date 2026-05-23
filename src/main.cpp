@@ -36,7 +36,9 @@ int main(int argc, char** argv) {
 
     if (channel > 0) {
         QProcess proc;
-        proc.start("iwconfig", {iface, "channel", QString::number(channel)});
+        // cap_net_admin은 exec 자식 프로세스에 상속되지 않으므로 sudo -n 사용
+        // (setup.sh가 sudoers NOPASSWD 규칙을 추가하므로 비밀번호 불필요)
+        proc.start("sudo", {"-n", "iwconfig", iface, "channel", QString::number(channel)});
         if (!proc.waitForFinished(3000)) {
             QMessageBox::warning(nullptr, "채널 설정 실패",
                                  QString("iwconfig %1 channel %2 실패\n"
