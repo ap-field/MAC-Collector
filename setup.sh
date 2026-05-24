@@ -106,7 +106,7 @@ Layout=
 0=Default
 FCITX_PROFILE
     chown -R "$REAL_USER:$REAL_USER" "$FCITX5_CONF"
-    echo "  ✓ fcitx5 한글 프로필 생성 (한/영 전환: 한글키 또는 Shift+Space)"
+    echo "  ✓ fcitx5 한글 프로필 생성 (한/영 변환 : ctrl +Space)"
 else
     echo "  → fcitx5 프로필 이미 있음. 덮어쓰지 않음."
 fi
@@ -234,7 +234,7 @@ if command -v fcitx5 &>/dev/null && \
     export QT_IM_MODULE=fcitx
     export XMODIFIERS="@im=fcitx"
     export GTK_IM_MODULE=fcitx
-    echo "[입력기] fcitx5  (한/영 전환: 한글키 또는 Shift+Space)"
+    echo "[입력기] fcitx5  (한/영 전환: Ctrl+Space)"
 else
     if ! pgrep -x ibus-daemon > /dev/null 2>&1; then
         ibus-daemon -drx 2>/dev/null || true
@@ -244,7 +244,7 @@ else
     export QT_IM_MODULE=ibus
     export XMODIFIERS="@im=ibus"
     export GTK_IM_MODULE=ibus
-    echo "[입력기] ibus  (한/영 전환: 한글키 또는 Shift+Space)"
+    echo "[입력기] ibus  (한/영 전환: Ctrl+Space)"
 fi
 
 exec "$BIN" "$@"

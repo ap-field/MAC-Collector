@@ -39,7 +39,7 @@ if command -v fcitx5 &>/dev/null && \
     export QT_IM_MODULE=fcitx
     export XMODIFIERS="@im=fcitx"
     export GTK_IM_MODULE=fcitx
-    echo "[입력기] fcitx5  (한/영 전환: 한글키 또는 Shift+Space)"
+    echo "[입력기] fcitx5  (한/영 전환: Ctrl+Space)"
 else
     if ! pgrep -x ibus-daemon > /dev/null 2>&1; then
         ibus-daemon -drx 2>/dev/null || true
@@ -49,7 +49,7 @@ else
     export QT_IM_MODULE=ibus
     export XMODIFIERS="@im=ibus"
     export GTK_IM_MODULE=ibus
-    echo "[입력기] ibus  (한/영 전환: 한글키 또는 Shift+Space)"
+    echo "[입력기] ibus  (한/영 전환: Ctrl+Space)"
 fi
 
 exec "$BIN" "$@"
