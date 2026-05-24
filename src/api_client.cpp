@@ -28,7 +28,7 @@ void ApiClient::registerDevice(const QString& mac,
     body["mac_address"]  = mac;
     body["owner_name"]   = name;
     body["phone_number"] = phone;
-    body["device_type"]  = deviceType;   // Integer: 1=노트북, 2=핸드폰, 0=기타
+    body["device_type"]  = deviceType;   // Integer: 1=노트북, 2=핸드폰 3=, 0=기타
     body["rssi"]         = rssi;
     body["vendor"]       = vendor;
     body["requested_at"] = requestedAt;  // "yyMMddTHHmmss"

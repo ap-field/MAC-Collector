@@ -89,34 +89,22 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
     Dot11Header hdr;
     std::memcpy(&hdr, data + rtLen, sizeof(hdr));
 
-    uint16_t fc      = hdr.frameControl;
-    uint8_t  type    = Dot11::frameType(fc);
-    uint8_t  subtype = Dot11::frameSubtype(fc);
+    uint16_t fc     = hdr.frameControl;
+    uint8_t  type   = Dot11::frameType(fc);
 
     // STA→AP 방향(ToDS=1, FromDS=0)만 처리 — 클라이언트 MAC을 addr2로 확보
     if (!Dot11::toDS(fc) || Dot11::fromDS(fc)) return r;
 
     if (type == Dot11::TYPE_MGT) {
-        if (subtype == Dot11::SUBTYPE_AUTH) {
-            r.kind = Parser::FrameKind::Auth;
-        } else if (subtype == Dot11::SUBTYPE_ASSOC_REQ ||
-                   subtype == Dot11::SUBTYPE_REASSOC_REQ) {
-            r.kind = Parser::FrameKind::Assoc;
-        } else {
-            return r;
-        }
+        // BPF가 auth/assoc-req/reassoc-req만 통과시킴
+        r.kind = FrameKind::Auth;
     } else if (type == Dot11::TYPE_DATA) {
-        // 암호화된 프레임은 LLC 헤더를 읽을 수 없음
-        if (Dot11::isProtected(fc))  return r;
-        // 페이로드 없는 Null/CF 프레임 제외
-        if (Dot11::isNullData(fc))   return r;
+        if (Dot11::isProtected(fc)) return r;
 
-        // LLC/SNAP 오프셋 계산 (802.11 기본 헤더 24B + QoS 2B)
         int llcOff = rtLen + 24;
         if (Dot11::isQoS(fc)) llcOff += 2;
         if (len < llcOff + 8) return r;
 
-        // LLC/SNAP: AA AA 03 <OUI 3B> <EtherType 2B>
         if (data[llcOff]   != 0xAA ||
             data[llcOff+1] != 0xAA ||
             data[llcOff+2] != 0x03) return r;
@@ -124,7 +112,7 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
         uint16_t etype = (static_cast<uint16_t>(data[llcOff+6]) << 8) | data[llcOff+7];
         if (etype != Dot11::ETHERTYPE_EAPOL) return r;
 
-        r.kind = Parser::FrameKind::Eapol;
+        r.kind = FrameKind::Eapol;
     } else {
         return r;
     }

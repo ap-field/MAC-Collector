@@ -41,6 +41,27 @@ void CaptureWorker::run() {
         return;
     }
 
+    struct bpf_program fp;
+    const char* filter =
+        "(type mgt subtype auth) or "
+        "(type mgt subtype assoc-req) or "
+        "(type mgt subtype reassoc-req) or "
+        "type data";
+    if (pcap_compile(pcap, &fp, filter, 1, PCAP_NETMASK_UNKNOWN) < 0) {
+        emit errorOccurred(QString("BPF 컴파일 실패: %1").arg(pcap_geterr(pcap)));
+        pcap_close(pcap);
+        emit finished();
+        return;
+    }
+    if (pcap_setfilter(pcap, &fp) < 0) {
+        emit errorOccurred(QString("BPF 필터 적용 실패: %1").arg(pcap_geterr(pcap)));
+        pcap_freecode(&fp);
+        pcap_close(pcap);
+        emit finished();
+        return;
+    }
+    pcap_freecode(&fp);
+
     pcap_ = pcap;
 
     while (!stop_.load()) {

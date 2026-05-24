@@ -82,7 +82,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent)
     ifaceCombo_->setMinimumHeight(36);
     for (const auto& ni : QNetworkInterface::allInterfaces())
         ifaceCombo_->addItem(ni.name());
-    ifaceCombo_->setCurrentText("wlan0mon");
+    ifaceCombo_->setCurrentText("mon0");
     ifaceCombo_->setStyleSheet(
         "QComboBox { border: 1.5px solid #D1D5DB; border-radius: 6px;"
         "  padding: 6px 10px; font-size: 10pt; }"
@@ -96,9 +96,9 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent)
     form->addRow(mkLabel("채널 번호 (0=변경 안함, 1-14):"), channelEdit_);
 
     // RSSI — QLineEdit + 숫자 전용
-    rssiEdit_ = mkLineEdit("-60");
+    rssiEdit_ = mkLineEdit("-20");
     rssiEdit_->setValidator(new QIntValidator(-100, -20, this));
-    rssiEdit_->setText("-60");
+    rssiEdit_->setText("-20");
     form->addRow(mkLabel("RSSI 임계값 (dBm):"), rssiEdit_);
 
     // DB 경로
@@ -316,13 +316,8 @@ Phase1Widget::Phase1Widget(QWidget* parent)
     // ── 감지 테이블 ──
     table_ = new QTableWidget(0, 4, this);
     table_->setHorizontalHeaderLabels({"MAC 주소", "신호", "감지 시각", ""});
+    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    // Interactive: setCellWidget은 dataChanged를 발생시키지 않아 ResizeToContents가
-    // 무시되므로, 직접 resizeColumnToContents(3)를 호출할 수 있는 모드로 설정
-    table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Interactive);
-    // 240px: 변경버튼(~80) + 배지(~140) + 여백
     table_->setColumnWidth(3, 240);
 
     table_->horizontalHeader()->setHighlightSections(false);
@@ -340,9 +335,9 @@ Phase1Widget::Phase1Widget(QWidget* parent)
         "  padding: 8px 12px; border: none;"
         "  border-bottom: 1px solid #E5E7EB;"
         "  font-weight: 700; font-size: 10pt; }"
-        "QTableWidget::item { padding: 8px 12px;"
+        "QTableWidget::item { padding: 8px 12px; color: #111827;"
         "  border-bottom: 1px solid #F3F4F6; }"
-        "QTableWidget::item:hover { background: #F9FAFB; }");
+        "QTableWidget::item:hover { background: #F9FAFB; color: #111827; }");
     root->addWidget(table_, 1);
 }
 
@@ -359,7 +354,8 @@ void Phase1Widget::addCandidate(const QString& macStr, int rssi,
 
     auto mkItem = [](const QString& t) {
         auto* it = new QTableWidgetItem(t);
-        it->setTextAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+        it->setTextAlignment(Qt::AlignCenter);
+        it->setForeground(QBrush(QColor("#111827")));
         return it;
     };
 
@@ -382,9 +378,9 @@ void Phase1Widget::addCandidate(const QString& macStr, int rssi,
     connect(regBtn, &QPushButton::clicked,
             this, &Phase1Widget::onRegisterButtonClicked);
     table_->setCellWidget(row, 3, regBtn);
-    // resizeColumnToContents(3) 호출 금지:
-    // Qt의 sizeHintForColumn은 setCellWidget 위젯을 포함하지 않아
-    // 빈 헤더("")로만 계산 → 컬럼을 거의 0으로 축소하는 역효과 발생
+    table_->ensurePolished();
+    for (int i = 0; i < 3; ++i)
+        table_->resizeColumnToContents(i);
 
     emit candidateCountChanged(table_->rowCount());
 }
@@ -405,7 +401,8 @@ void Phase1Widget::showDuplicateNotice(const QString& macStr,
 
     auto mkItem = [](const QString& t) {
         auto* it = new QTableWidgetItem(t);
-        it->setTextAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+        it->setTextAlignment(Qt::AlignCenter);
+        it->setForeground(QBrush(QColor("#111827")));
         return it;
     };
 
@@ -421,9 +418,8 @@ void Phase1Widget::showDuplicateNotice(const QString& macStr,
 
     const QString badgeText = QString("✅ %1  %2").arg(ownerName, phone);
     auto* badge = new QLabel(badgeText);
-    badge->setToolTip(badgeText);          // 잘릴 때 툴팁으로 전체 확인
-    badge->setMinimumWidth(0);             // 레이아웃이 강제로 0으로 줄이지 않도록
-    badge->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    badge->setToolTip(badgeText);
+    badge->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     badge->setStyleSheet(
         "QLabel { color: #065F46; background: #D1FAE5;"
         "  border-radius: 6px; padding: 4px 10px;"
@@ -446,7 +442,18 @@ void Phase1Widget::showDuplicateNotice(const QString& macStr,
     hlay->addWidget(badge, 1);
     hlay->addWidget(updBtn, 0);
     table_->setCellWidget(row, 3, cell);
-    // resizeColumnToContents(3) 호출 금지 (위 "등록" 버튼 주석 참고)
+
+    table_->ensurePolished();
+    for (int i = 0; i < 3; ++i)
+        table_->resizeColumnToContents(i);
+    // 열 3: stylesheet(9pt DemiBold)와 동일한 폰트로 직접 측정
+    // cell margins(4+4) + badge(text + horizontal padding 10*2) + spacing(6) + button(80)
+    QFont badgeFont = QApplication::font();
+    badgeFont.setPointSizeF(9.0);
+    badgeFont.setWeight(QFont::DemiBold);
+    int needed = 8 + QFontMetrics(badgeFont).horizontalAdvance(badgeText) + 20 + 6 + 80;
+    if (table_->columnWidth(3) < needed)
+        table_->setColumnWidth(3, needed);
 
     emit candidateCountChanged(table_->rowCount());
 }
@@ -747,7 +754,7 @@ AdminPage::AdminPage(Db* db, QWidget* parent)
         "QHeaderView::section { background: #F3F4F6; color: #374151;"
         "  padding: 6px 12px; border: none;"
         "  border-bottom: 1px solid #E5E7EB; font-weight: 700; }"
-        "QTableWidget::item { padding: 6px 12px;"
+        "QTableWidget::item { padding: 6px 20px; color: #111827;"
         "  border-bottom: 1px solid #F3F4F6; }"
         "QTableWidget::item:selected { background: #DBEAFE;"
         "  color: #1D4ED8; }");
@@ -776,23 +783,25 @@ void AdminPage::reloadTable(const QString& keyword) {
     auto list = keyword.isEmpty()
     ? db_->listStations()
     : db_->searchStations(keyword.toStdString());
+    auto mkItem = [](const QString& t) {
+        auto* it = new QTableWidgetItem(t);
+        it->setForeground(QBrush(QColor("#111827")));
+        return it;
+    };
     table_->setRowCount(0);
     for (const auto& s : list) {
         int row = table_->rowCount();
         table_->insertRow(row);
-        table_->setItem(row, 0, new QTableWidgetItem(
-                                    QString::fromStdString(s.mac.toString())));
-        table_->setItem(row, 1, new QTableWidgetItem(
-                                    QString::fromStdString(s.name)));
-        table_->setItem(row, 2, new QTableWidgetItem(
-                                    QString::fromStdString(s.phoneNum)));
-        table_->setItem(row, 3, new QTableWidgetItem(
-                                    QString::fromStdString(Db::typeCodeToString(s.type))));
-        table_->setItem(row, 4, new QTableWidgetItem(
-                                    QString::fromStdString(s.registeredAt)));
-        table_->setItem(row, 5, new QTableWidgetItem(
-                                    QString::fromStdString(s.updatedAt)));
+        table_->setItem(row, 0, mkItem(QString::fromStdString(s.mac.toString())));
+        table_->setItem(row, 1, mkItem(QString::fromStdString(s.name)));
+        table_->setItem(row, 2, mkItem(QString::fromStdString(s.phoneNum)));
+        table_->setItem(row, 3, mkItem(QString::fromStdString(Db::typeCodeToString(s.type))));
+        table_->setItem(row, 4, mkItem(QString::fromStdString(s.registeredAt)));
+        table_->setItem(row, 5, mkItem(QString::fromStdString(s.updatedAt)));
     }
+    table_->ensurePolished();
+    for (int i = 0; i < 5; ++i)
+        table_->resizeColumnToContents(i);
 }
 
 void AdminPage::onDeleteSelected() {
@@ -1069,7 +1078,7 @@ void KioskWindow::goPhase1() {
     updatePhaseIndicator(1);
     isUpdateMode_  = false;
     phase1Entered_ = true;
-    AudioPlayer::instance().play({":/audio/scan_guide.mp3"});  // 경로 버그 수정
+    AudioPlayer::instance().play({":/audio/scan_guide.wav"});  // 경로 버그 수정
 }
 
 void KioskWindow::goPhase2Register(QString macStr, QString timestamp)
@@ -1083,7 +1092,7 @@ void KioskWindow::goPhase2Register(QString macStr, QString timestamp)
     p2_->prefill("", "", "phone");
     p2_->focusFirstInput();
 
-    AudioPlayer::instance().play({":/audio/input_guide.mp3"});
+    AudioPlayer::instance().play({":/audio/input_guide.wav"});
 
     stack_->setCurrentIndex(1);
     updatePhaseIndicator(2);
@@ -1107,7 +1116,7 @@ void KioskWindow::goPhase2Update(QString macStr) {
     p2_->prefill(name, phone, deviceType);
     p2_->focusFirstInput();
 
-    AudioPlayer::instance().play({":/audio/update_guide.mp3"});
+    AudioPlayer::instance().play({":/audio/update_guide.wav"});
 
     stack_->setCurrentIndex(1);
     updatePhaseIndicator(2);
@@ -1119,9 +1128,9 @@ void KioskWindow::goPhase3() {
     p3_->showCompleted(isUpdateMode_);
 
     if (isUpdateMode_)
-        AudioPlayer::instance().play({":/audio/update_complete.mp3"});
+        AudioPlayer::instance().play({":/audio/update_complete.wav"});
     else
-        AudioPlayer::instance().play({":/audio/register_complete.mp3"});
+        AudioPlayer::instance().play({":/audio/register_complete.wav"});
 }
 
 void KioskWindow::goAdmin() {
@@ -1189,11 +1198,11 @@ void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp)
                 QString::fromStdString(s.phoneNum),
                 rssi,
                 QString::fromStdString(s.registeredAt));
-            AudioPlayer::instance().play({":/audio/duplicate_notice.mp3"});
+            AudioPlayer::instance().play({":/audio/duplicate_notice.wav"});
         }
     } else {
         p1_->addCandidate(macStr, rssi, timestamp);
-        AudioPlayer::instance().play({":/audio/mac_detected.mp3"});
+        AudioPlayer::instance().play({":/audio/mac_detected.wav"});
     }
 }
 
