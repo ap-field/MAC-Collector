@@ -16,11 +16,11 @@ QT_DIR="/home/$REAL_USER/Qt/6.11.0/gcc_64"
 PLUGIN_DIR="$QT_DIR/plugins/platforminputcontexts"
 
 echo "========================================"
-echo " MAC-Collector 환경 설정 시작"
+echo " MAC-Collector environment setting started."
 echo "========================================"
 
 # ── 1. 시스템 패키지 설치 ──
-echo "[1/6] 시스템 패키지 설치 중..."
+echo "[1/6] Installing system packages..."
 sudo apt-get update -qq
 
 # 개별 설치 (없는 패키지는 건너뜀)
@@ -55,15 +55,15 @@ for pkg in "${PACKAGES[@]}"; do
     if sudo apt-get install -y "$pkg" 1> /dev/null; then
         echo "  ✓ $pkg"
     else
-        echo "  ⚠ $pkg (건너뜀 - 없는 패키지)"
+        echo "  ⚠ $pkg skipped: Package not exists."
     fi
 done
 
-echo "[1/6] 완료"
+echo "[1/6] Completed."
 
 # ── 2. 한글 입력기 Qt6 플러그인 설정 ──
 # 우선순위: fcitx5 (비GNOME 환경에서 ibus보다 안정적) > ibus
-echo "[2/6] 한글 입력기 Qt6 플러그인 설정 중..."
+echo "[2/6] Setting Qt6 plugins for ibus-hangul..."
 mkdir -p "$PLUGIN_DIR"
 
 # fcitx5 Qt6 플러그인 복사 (fcitx5-frontend-qt6 패키지 제공)
@@ -79,9 +79,9 @@ done
 
 if [ -n "$FCITX5_PLUGIN" ]; then
     cp "$FCITX5_PLUGIN" "$PLUGIN_DIR/"
-    echo "  ✓ fcitx5 Qt6 플러그인 복사: $PLUGIN_DIR/$(basename $FCITX5_PLUGIN)"
+    echo "  ✓ fcitx5 Qt6 plugins coppied: $PLUGIN_DIR/$(basename $FCITX5_PLUGIN)"
 else
-    echo "  ⚠ fcitx5 Qt6 플러그인 없음 (fcitx5-frontend-qt6 설치 확인)"
+    echo "  ⚠ fcitx5 Qt6 not found: Please check for installation fcitx5-frontend-qt6."
 fi
 
 # fcitx5 한글 프로필 생성 (없을 때만)
@@ -113,47 +113,47 @@ fi
 
 # ibus Qt6 플러그인 확인 (Qt 인스톨러에 내장된 경우 복사 불필요)
 if [ -f "$PLUGIN_DIR/libibusplatforminputcontextplugin.so" ]; then
-    echo "  ✓ ibus Qt6 플러그인 내장 확인"
+    echo "  ✓ ibus Qt6 plugins are exist."
 else
     for candidate in \
         "/usr/lib/x86_64-linux-gnu/qt6/plugins/platforminputcontexts/libibusplatforminputcontextplugin.so" \
         $(find /usr/lib -name '*ibus*inputcontext*.so' -path '*/qt6/*' 2>/dev/null | head -1); do
         if [ -f "$candidate" ]; then
             cp "$candidate" "$PLUGIN_DIR/"
-            echo "  ✓ ibus Qt6 플러그인 복사: $(basename $candidate)"
+            echo "  ✓ ibus Qt6 plugins coppied: $(basename $candidate)"
             break
         fi
     done
 fi
 
-echo "  → 플러그인 디렉토리 현황:"
+echo "  → Checking plugins directory:"
 ls "$PLUGIN_DIR" | sed 's/^/    /'
-echo "[2/6] 완료"
+echo "[2/6] Completed."
 
 # ── 3. 빌드 ──
-echo "[3/6] 프로젝트 빌드 중..."
+echo "[3/6] Building project..."
 BIN_PATH="$SCRIPT_DIR/bin/mac-collector"
 if cmake -S "$SCRIPT_DIR" -B "$SCRIPT_DIR/build" && cmake --build "$SCRIPT_DIR/build" -j$(nproc); then
-    echo "[3/6] 빌드 완료"
+    echo "[3/6] Building completed."
 else
-    echo "  ⚠ 빌드 실패. 수동으로 빌드하세요:"
+    echo "  ⚠ Building failed. You can build manually:"
     echo "    cd $SCRIPT_DIR && cmake -S . -B build && cmake --build build -j\$(nproc)"
     exit 1
 fi
 
 # ── 4. setcap 설정 + sudoers 규칙 ──
-echo "[4/6] pcap 권한 설정 (setcap + sudoers)..."
+echo "[4/6] Setting capability for pcap (setcap + sudoers)..."
 
 # 바이너리에 capability 적용
 if [ -f "$BIN_PATH" ]; then
     setcap cap_net_raw,cap_net_admin=eip "$BIN_PATH"
     if getcap "$BIN_PATH" 2>/dev/null | grep -q cap_net_raw; then
-        echo "  → setcap 검증 완료: $BIN_PATH"
+        echo "  → setcap validated: $BIN_PATH"
     else
-        echo "  ⚠ setcap 적용 확인 실패"
+        echo "  ⚠ setcap validation failed."
     fi
 else
-    echo "  ⚠ 바이너리 없음. 빌드 후 자동 적용됨 (run.sh 실행 시)"
+    echo "  ⚠ Binary not found. 빌드 후 자동 적용됨 (run.sh 실행 시)"
 fi
 
 # sudoers NOPASSWD 규칙:
@@ -178,7 +178,7 @@ fi
 echo "[4/6] 완료"
 
 # ── 5. ibus 자동시작 등록 ──
-echo "[5/6] ibus 자동시작 설정..."
+echo "[5/6] Setting ibus autorun..."
 AUTOSTART_DIR="/home/$REAL_USER/.config/autostart"
 mkdir -p "$AUTOSTART_DIR"
 cat > "$AUTOSTART_DIR/ibus.desktop" << 'DESKTOP'
@@ -191,10 +191,10 @@ NoDisplay=false
 X-GNOME-Autostart-enabled=true
 DESKTOP
 chown "$REAL_USER:$REAL_USER" "$AUTOSTART_DIR/ibus.desktop"
-echo "[5/6] 완료"
+echo "[5/6] Completed."
 
 # ── 6. 실행 스크립트 생성 ──
-echo "[6/6] run.sh 생성 중..."
+echo "[6/6] Creating run.sh script..."
 RUN_SCRIPT="$SCRIPT_DIR/run.sh"
 cat > "$RUN_SCRIPT" << 'RUNSCRIPT'
 #!/bin/bash
@@ -204,7 +204,7 @@ BIN="$SCRIPT_DIR/bin/mac-collector"
 QT_PLUGIN_DIR="$HOME/Qt/6.11.0/gcc_64/plugins/platforminputcontexts"
 
 if [ ! -f "$BIN" ]; then
-    echo "오류: 바이너리 없음. 먼저 빌드하세요."
+    echo "Error: Binary not found. You should build first."
     exit 1
 fi
 
@@ -213,7 +213,7 @@ if ! getcap "$BIN" 2>/dev/null | grep -q cap_net_raw; then
     echo "[권한 설정] pcap capability 적용 중 (sudo 비밀번호 필요)..."
     sudo setcap cap_net_raw,cap_net_admin=eip "$BIN"
     if ! getcap "$BIN" 2>/dev/null | grep -q cap_net_raw; then
-        echo "오류: setcap 적용 실패. sudo ./setup.sh 를 먼저 실행하세요."
+        echo "Error: setcap 적용 실패. sudo ./setup.sh 를 먼저 실행하세요."
         exit 1
     fi
     echo "  → capability 적용 완료"
@@ -252,11 +252,11 @@ RUNSCRIPT
 
 chmod +x "$RUN_SCRIPT"
 chown "$REAL_USER:$REAL_USER" "$RUN_SCRIPT"
-echo "[6/6] 완료: $RUN_SCRIPT"
+echo "[6/6] Completed: $RUN_SCRIPT"
 
 echo ""
 echo "========================================"
-echo " 설정 완료!"
+echo " Setting Complete!"
 echo "========================================"
-echo "  실행: $SCRIPT_DIR/run.sh"
+echo "  Execute: $SCRIPT_DIR/run.sh"
 echo "========================================"
