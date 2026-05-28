@@ -2,6 +2,7 @@
 #include "db.h"
 #include <pcap.h>
 
+#include <cstdio>
 #include <cstring>
 #include <QDebug>
 #include <QDateTime>
@@ -63,15 +64,42 @@ void CaptureWorker::run() {
     pcap_freecode(&fp);
 
     pcap_ = pcap;
+    qDebug() << "[CaptureWorker] 캡처 시작 -" << iface_;
+
+    // /sys/class/net/{iface}/operstate 를 읽어 인터페이스 up 여부 확인
+    auto checkIfaceUp = [&]() -> bool {
+        std::string path = "/sys/class/net/" + iface_.toStdString() + "/operstate";
+        char buf[16] = {};
+        FILE* f = fopen(path.c_str(), "r");
+        if (!f) return false;
+        fgets(buf, sizeof(buf), f);
+        fclose(f);
+        return strncmp(buf, "up", 2) == 0;
+    };
+
+    QString stopReason;
+    int timeoutCount = 0;
 
     while (!stop_.load()) {
         pcap_pkthdr*   hdr  = nullptr;
         const uint8_t* data = nullptr;
 
         int rc = pcap_next_ex(pcap_, &hdr, &data);
-        if (rc == 0)  continue;   // timeout
-        if (rc == -2) break;      // pcap_breakloop 호출됨
-        if (rc < 0)   break;      // 그 외 에러 / EOF
+        if (rc == 0) {
+            // 패킷 없음(timeout) — 약 1초(100ms × 10)마다 인터페이스 상태 확인
+            if (++timeoutCount >= 10) {
+                timeoutCount = 0;
+                if (!checkIfaceUp()) {
+                    stopReason = QString("인터페이스 %1 down/삭제 감지").arg(iface_);
+                    emit errorOccurred(QString("인터페이스 %1 이(가) down되었습니다.").arg(iface_));
+                    break;
+                }
+            }
+            continue;
+        }
+        timeoutCount = 0;
+        if (rc == -2) { stopReason = "pcap_breakloop 호출됨"; break; }
+        if (rc < 0)   { stopReason = QString("pcap 오류: %1").arg(pcap_geterr(pcap_)); break; }
 
         Parser::Result r = parser_.parse(data, static_cast<int>(hdr->caplen));
         if (!r.ok) continue;
@@ -80,16 +108,18 @@ void CaptureWorker::run() {
         if (seenInSession_.find(r.addr2) != seenInSession_.end()) continue;
         seenInSession_.insert(r.addr2);
 
-        // DB 기등록 필터링은 UI 레이어(Phase1Widget)에서 수행
-        // capture 레이어는 emit만 담당
-
         QString macStr = QString::fromStdString(r.addr2.toString());
         QString ts     = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
 
         emit candidateFound(macStr, r.rssi, ts);
     }
 
+    if (stopReason.isEmpty())
+        stopReason = stop_.load() ? "정지 요청" : "알 수 없는 이유";
+
+    qDebug() << "[CaptureWorker] 캡처 루프 종료 -" << stopReason;
     pcap_close(pcap_);
     pcap_ = nullptr;
+    qDebug() << "[CaptureWorker] 스레드 종료 완료";
     emit finished();
 }
