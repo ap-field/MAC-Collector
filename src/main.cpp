@@ -1,7 +1,9 @@
 #include "capture.h"
 #include "db.h"
 #include "ui.h"
+#include "app.h"
 
+#include <glog/logging.h>
 #include <QApplication>
 #include <QMessageBox>
 #include <QProcess>
@@ -21,6 +23,7 @@ int main(int argc, char** argv) {
     setenv("XMODIFIERS",    "@im=ibus", 1);
     setenv("GTK_IM_MODULE", "ibus", 1);
 
+    App a(argc, argv);
     QApplication app(argc, argv);
     g_app = &app;
     std::signal(SIGINT,  signalHandler);

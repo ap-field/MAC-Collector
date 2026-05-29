@@ -885,6 +885,7 @@ void AdminPage::onBack() {
 KioskWindow::KioskWindow(Db* db, QWidget* parent)
     : QMainWindow(parent), db_(db)
 {
+    Q_ASSERT(db != nullptr);// assert 활용/자동으로 함수 빠짐
     setWindowTitle("MAC 수집 키오스크");
     resize(1024, 768);
 

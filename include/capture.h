@@ -1,5 +1,6 @@
 #pragma once
 
+#include <glog/logging.h>
 #include <atomic>
 #include <set>
 
@@ -19,6 +20,7 @@ class CaptureWorker : public QObject {
 public:
     explicit CaptureWorker(QObject* parent = nullptr);
     ~CaptureWorker() override;
+
 
     void configure(const QString& iface, int rssiThreshold, Db* db);
     void requestStop();

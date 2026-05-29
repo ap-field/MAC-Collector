@@ -8,9 +8,13 @@
 #include <QDateTime>
 
 CaptureWorker::CaptureWorker(QObject* parent)
-    : QObject(parent), parser_(-60), db_(nullptr), stop_(false) {}
+    : QObject(parent), parser_(-60), db_(nullptr), stop_(false) {
+    LOG(INFO)<< "CaptureWorker";
+}
 
-CaptureWorker::~CaptureWorker() = default;
+CaptureWorker::~CaptureWorker() {
+    LOG(INFO)<<"~CaptureWorker";
+}
 
 void CaptureWorker::configure(const QString& iface, int rssiThreshold, Db* db) {
     iface_ = iface;
@@ -19,17 +23,21 @@ void CaptureWorker::configure(const QString& iface, int rssiThreshold, Db* db) {
 }
 
 void CaptureWorker::requestStop() {
-    stop_ = true;          // stop_ 으로 통일
+    LOG(INFO)<<"requestStop";
+
+    stop_ = true;          // stop_ 으로 통일// 수정
     if (pcap_)
-        pcap_breakloop(pcap_);  // pcap_ 으로 통일
+        pcap_breakloop(pcap_);  // pcap_ 으로 통일 // 수정
 }
 
 void CaptureWorker::run() {
+    LOG(INFO)<< "run beg";
     char errbuf[PCAP_ERRBUF_SIZE] = {0};
 
     pcap_t* pcap = pcap_open_live(iface_.toUtf8().constData(),
                                   2048, 1, 100, errbuf);
     if (pcap == nullptr) {
+        LOG(ERROR) << "pcap_open_live retrun null " <<errbuf;
         emit errorOccurred(QString("pcap_open_live 실패: %1").arg(errbuf));
         emit finished();
         return;
@@ -38,7 +46,7 @@ void CaptureWorker::run() {
     if (pcap_datalink(pcap) != DLT_IEEE802_11_RADIO) {
         emit errorOccurred("Radiotap(DLT_IEEE802_11_RADIO) 인터페이스가 아닙니다. 모니터 모드 확인 필요.");
         pcap_close(pcap);
-        emit finished();
+        emit finished();//warning err 추가
         return;
     }
 
@@ -46,13 +54,12 @@ void CaptureWorker::run() {
     const char* filter =
         "(type mgt subtype auth) or "
         "(type mgt subtype assoc-req) or "
-        "(type mgt subtype reassoc-req) or "
-        "type data";
+        "(type mgt subtype reassoc-req)";
     if (pcap_compile(pcap, &fp, filter, 1, PCAP_NETMASK_UNKNOWN) < 0) {
         emit errorOccurred(QString("BPF 컴파일 실패: %1").arg(pcap_geterr(pcap)));
         pcap_close(pcap);
         emit finished();
-        return;
+        return; // 리턴 전에 모두 log 추가하기
     }
     if (pcap_setfilter(pcap, &fp) < 0) {
         emit errorOccurred(QString("BPF 필터 적용 실패: %1").arg(pcap_geterr(pcap)));
@@ -83,8 +90,9 @@ void CaptureWorker::run() {
     while (!stop_.load()) {
         pcap_pkthdr*   hdr  = nullptr;
         const uint8_t* data = nullptr;
-
+        LOG(INFO) << "bef pcap_next_ex";
         int rc = pcap_next_ex(pcap_, &hdr, &data);
+        LOG(INFO) << "aft pcap_next_ex" << rc;
         if (rc == 0) {
             // 패킷 없음(timeout) — 약 1초(100ms × 10)마다 인터페이스 상태 확인
             if (++timeoutCount >= 10) {
@@ -114,7 +122,7 @@ void CaptureWorker::run() {
 
         const char* kindName =
             (r.kind == Parser::FrameKind::Auth)  ? "auth" :
-            (r.kind == Parser::FrameKind::Assoc) ? "assoc" : "eapol";
+            (r.kind == Parser::FrameKind::Assoc) ? "assoc" : "eapol";//
         QString ts = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
 
         qDebug() << "[CAPTURE] MAC 탐지:" << macStr
@@ -131,4 +139,5 @@ void CaptureWorker::run() {
     pcap_ = nullptr;
     qDebug() << "[CaptureWorker] 스레드 종료 완료";
     emit finished();
+    LOG(INFO)<< "run end";
 }

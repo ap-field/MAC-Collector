@@ -28,6 +28,8 @@ qt_add_executable(mac-collector
     setup.sh
     src/api_client.cpp
     include/api_client.h
+    include/app.h
+    src/app.cpp
 )
 
 qt_add_resources(mac-collector "resources"
@@ -55,6 +57,7 @@ target_link_libraries(mac-collector
         Qt6::Multimedia
         pcap
         sqlite3
+        glog
 )
 
 # 실행파일 위치 고정: 프로젝트 루트/bin
