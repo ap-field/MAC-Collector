@@ -63,6 +63,9 @@ void CaptureWorker::run() {
     pcap_freecode(&fp);
 
     pcap_ = pcap;
+    qDebug() << "[CAPTURE] 캡처 루프 시작 -" << iface_;
+
+    int pktCount = 0, parseOk = 0, parseFail = 0;
 
     while (!stop_.load()) {
         pcap_pkthdr*   hdr  = nullptr;
@@ -70,25 +73,28 @@ void CaptureWorker::run() {
 
         int rc = pcap_next_ex(pcap_, &hdr, &data);
         if (rc == 0)  continue;   // timeout
-        if (rc == -2) break;      // pcap_breakloop 호출됨
-        if (rc < 0)   break;      // 그 외 에러 / EOF
+        if (rc == -2) { qDebug() << "[CAPTURE] breakloop"; break; }
+        if (rc < 0)   { qDebug() << "[CAPTURE] pcap 에러:" << pcap_geterr(pcap_); break; }
+
+        pktCount++;
+        if (pktCount <= 5 || pktCount % 500 == 0)
+            qDebug() << "[CAPTURE] 패킷 수신 #" << pktCount << "len:" << hdr->caplen;
 
         Parser::Result r = parser_.parse(data, static_cast<int>(hdr->caplen));
-        if (!r.ok) continue;
+        if (!r.ok) { parseFail++; continue; }
+        parseOk++;
 
-        // 세션 내 중복 emit 방지
         if (seenInSession_.find(r.addr2) != seenInSession_.end()) continue;
         seenInSession_.insert(r.addr2);
-
-        // DB 기등록 필터링은 UI 레이어(Phase1Widget)에서 수행
-        // capture 레이어는 emit만 담당
 
         QString macStr = QString::fromStdString(r.addr2.toString());
         QString ts     = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
 
+        qDebug() << "[CAPTURE] MAC 탐지:" << macStr << "RSSI:" << r.rssi;
         emit candidateFound(macStr, r.rssi, ts);
     }
 
+    qDebug() << "[CAPTURE] 종료 | 패킷:" << pktCount << "파싱OK:" << parseOk << "파싱실패:" << parseFail;
     pcap_close(pcap_);
     pcap_ = nullptr;
     emit finished();

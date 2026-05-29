@@ -7,6 +7,7 @@
 #include <QProcess>
 #include <QThread>
 #include <csignal>
+#include <qfileinfo.h>
 
 namespace {
 QApplication* g_app = nullptr;
@@ -48,6 +49,7 @@ int main(int argc, char** argv) {
     }
 
     Db db;
+    qDebug() << "[DEBUG] DB absolute path:" << QFileInfo(dbPath).absoluteFilePath();
     if (!db.open(dbPath.toStdString())) {
         QMessageBox::critical(nullptr, "DB 오류",
                               QString("DB 열기 실패: %1").arg(dbPath));

@@ -3,6 +3,7 @@
 #include "dot11hdr.h"
 
 #include <cstring>
+#include <QDebug>
 
 namespace {
 
@@ -91,14 +92,34 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
 
     uint16_t fc     = hdr.frameControl;
     uint8_t  type   = Dot11::frameType(fc);
+    uint8_t  subtype = Dot11::frameSubtype(fc);
+    bool     toDs   = Dot11::toDS(fc);
+    bool     fromDs = Dot11::fromDS(fc);
 
-    // STA→AP 방향(ToDS=1, FromDS=0)만 처리 — 클라이언트 MAC을 addr2로 확보
-    if (!Dot11::toDS(fc) || Dot11::fromDS(fc)) return r;
+    Mac frameMac(hdr.addr2);
+    QString macStr = QString::fromStdString(frameMac.toString());
 
     if (type == Dot11::TYPE_MGT) {
-        // BPF가 auth/assoc-req/reassoc-req만 통과시킴
-        r.kind = FrameKind::Auth;
+        const char* subtypeName =
+            (subtype == Dot11::SUBTYPE_AUTH)        ? "auth" :
+            (subtype == Dot11::SUBTYPE_ASSOC_REQ)   ? "assoc-req" :
+            (subtype == Dot11::SUBTYPE_REASSOC_REQ) ? "reassoc-req" :
+            (subtype == Dot11::SUBTYPE_PROBE_REQ)   ? "probe-req" : "other";
+        qDebug() << "[PARSER] MGT" << subtypeName
+                 << "from:" << macStr
+                 << "ToDS:" << toDs << "FromDS:" << fromDs
+                 << "RSSI:" << rssi;
+
+        if (subtype == Dot11::SUBTYPE_AUTH) {
+            r.kind = FrameKind::Auth;
+        } else if (subtype == Dot11::SUBTYPE_ASSOC_REQ ||
+                   subtype == Dot11::SUBTYPE_REASSOC_REQ) {
+            r.kind = FrameKind::Assoc;
+        } else {
+            return r;
+        }
     } else if (type == Dot11::TYPE_DATA) {
+        if (!toDs || fromDs) return r;
         if (Dot11::isProtected(fc)) return r;
 
         int llcOff = rtLen + 24;
@@ -112,13 +133,15 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
         uint16_t etype = (static_cast<uint16_t>(data[llcOff+6]) << 8) | data[llcOff+7];
         if (etype != Dot11::ETHERTYPE_EAPOL) return r;
 
+        qDebug() << "[PARSER] EAPOL from:" << macStr
+                 << "RSSI:" << rssi;
         r.kind = FrameKind::Eapol;
     } else {
         return r;
     }
 
     r.ok    = true;
-    r.addr2 = Mac(hdr.addr2);
+    r.addr2 = frameMac;
     r.rssi  = rssi;
     return r;
 }
