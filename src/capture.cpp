@@ -105,12 +105,21 @@ void CaptureWorker::run() {
         if (!r.ok) continue;
 
         // 세션 내 중복 emit 방지
-        if (seenInSession_.find(r.addr2) != seenInSession_.end()) continue;
+        QString macStr = QString::fromStdString(r.addr2.toString());
+        if (seenInSession_.find(r.addr2) != seenInSession_.end()) {
+            qDebug() << "[CAPTURE] 중복 스킵:" << macStr;
+            continue;
+        }
         seenInSession_.insert(r.addr2);
 
-        QString macStr = QString::fromStdString(r.addr2.toString());
-        QString ts     = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
+        const char* kindName =
+            (r.kind == Parser::FrameKind::Auth)  ? "auth" :
+            (r.kind == Parser::FrameKind::Assoc) ? "assoc" : "eapol";
+        QString ts = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
 
+        qDebug() << "[CAPTURE] MAC 탐지:" << macStr
+                 << "경유:" << kindName
+                 << "RSSI:" << r.rssi;
         emit candidateFound(macStr, r.rssi, ts);
     }
 
