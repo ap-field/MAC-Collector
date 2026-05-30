@@ -18,7 +18,6 @@ public:
                         const QString& phone,
                         int            deviceType,   // 1=노트북 2=핸드폰 0=기타
                         int            rssi,
-                        const QString& vendor,
                         const QString& requestedAt); // "yyMMddTHHmmss"
 
     // 시나리오 3 — 정보 변경
