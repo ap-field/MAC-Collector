@@ -37,16 +37,23 @@ void CaptureWorker::run() {
     pcap_t* pcap = pcap_open_live(iface_.toUtf8().constData(),
                                   2048, 1, 100, errbuf);
     if (pcap == nullptr) {
-        LOG(ERROR) << "pcap_open_live retrun null " <<errbuf;
+        // 권한 부족(cap_net_raw 미적용)일 때 pcap_open_live 가 여기서 실패한다.
+        // run.sh 가 setcap 으로 권한을 적용하지만, 재빌드 후 누락되면 이 경로로 떨어짐.
+        LOG(ERROR) << "pcap_open_live returned null iface=" << iface_.toStdString()
+                   << " errbuf=" << errbuf
+                   << " (cap_net_raw 권한 또는 인터페이스 존재 여부 확인 필요)";
         emit errorOccurred(QString("pcap_open_live 실패: %1").arg(errbuf));
         emit finished();
         return;
     }
+    LOG(INFO) << "pcap_open_live ok iface=" << iface_.toStdString();
 
     if (pcap_datalink(pcap) != DLT_IEEE802_11_RADIO) {
+        LOG(ERROR) << "datalink is not DLT_IEEE802_11_RADIO iface=" << iface_.toStdString()
+                   << " (모니터 모드 미설정)";
         emit errorOccurred("Radiotap(DLT_IEEE802_11_RADIO) 인터페이스가 아닙니다. 모니터 모드 확인 필요.");
         pcap_close(pcap);
-        emit finished();//warning err 추가
+        emit finished();
         return;
     }
 
@@ -56,12 +63,14 @@ void CaptureWorker::run() {
         "(type mgt subtype assoc-req) or "
         "(type mgt subtype reassoc-req)";
     if (pcap_compile(pcap, &fp, filter, 1, PCAP_NETMASK_UNKNOWN) < 0) {
+        LOG(ERROR) << "pcap_compile failed: " << pcap_geterr(pcap);
         emit errorOccurred(QString("BPF 컴파일 실패: %1").arg(pcap_geterr(pcap)));
         pcap_close(pcap);
         emit finished();
-        return; // 리턴 전에 모두 log 추가하기
+        return;
     }
     if (pcap_setfilter(pcap, &fp) < 0) {
+        LOG(ERROR) << "pcap_setfilter failed: " << pcap_geterr(pcap);
         emit errorOccurred(QString("BPF 필터 적용 실패: %1").arg(pcap_geterr(pcap)));
         pcap_freecode(&fp);
         pcap_close(pcap);
@@ -78,7 +87,11 @@ void CaptureWorker::run() {
         std::string path = "/sys/class/net/" + iface_.toStdString() + "/operstate";
         char buf[16] = {};
         FILE* f = fopen(path.c_str(), "r");
-        if (!f) return false;
+        if (!f) {
+            LOG(WARNING) << "checkIfaceUp fopen failed path=" << path
+                         << " (인터페이스 삭제 가능성)";
+            return false;
+        }
         fgets(buf, sizeof(buf), f);
         fclose(f);
         return strncmp(buf, "up", 2) == 0;

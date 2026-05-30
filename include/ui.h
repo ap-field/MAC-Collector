@@ -16,6 +16,7 @@ class QAudioOutput;
 class QSpinBox;
 class QCloseEvent;
 class Db;
+class ApiClient;
 
 // ────────── SettingsDialog ──────────
 class SettingsDialog : public QDialog {
@@ -140,7 +141,7 @@ private:
 class AdminPage : public QWidget {
     Q_OBJECT
 public:
-    explicit AdminPage(Db* db, QWidget* parent = nullptr);
+    explicit AdminPage(Db* db, ApiClient* api = nullptr, QWidget* parent = nullptr);
     void refresh();
     void focusSearch();
 
@@ -155,6 +156,7 @@ private slots:
 
 private:
     Db*           db_;
+    ApiClient*    api_ = nullptr;
     QTableWidget* table_;
     QLineEdit*    searchEdit_;
     QPushButton*  searchBtn_;
@@ -169,11 +171,19 @@ private:
 class KioskWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit KioskWindow(Db* db, QWidget* parent = nullptr);
+    explicit KioskWindow(Db* db, ApiClient* api = nullptr, QWidget* parent = nullptr);
 
 public slots:
     void onCandidateFound(QString macStr, int rssi, QString timestamp);
     void onCaptureError(QString msg);
+
+    // ── ApiClient 응답 처리 ──
+    void onRegisterSuccess(QString mac);
+    void onRegisterFailed(QString mac, QString reason);
+    void onUpdateSuccess(QString mac, QString updatedAt);
+    void onUpdateFailed(QString mac, QString reason);
+    void onDeviceListFetched(QStringList macs);
+    void onDeviceListFailed(QString reason);
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -197,14 +207,21 @@ private:
     void setActivePhase(int phase);
     void setChromeVisible(bool visible);
     void updatePhaseIndicator(int activeStep);
+    // pending* 멤버를 로컬 캐시(DB)에 반영하고 Phase1 행을 갱신한 뒤 Phase3로 전환
+    void commitConfirmed();
 
-    Db*     db_;
+    Db*        db_;
+    ApiClient* api_ = nullptr;
 
     bool    isUpdateMode_     = false;
     bool    phase1Entered_    = false;
     QString pendingMac_;
     QString pendingTimestamp_;
     int     pendingRssi_      = 0;
+    // onPhase2Confirmed → 비동기 API 응답 콜백에서 로컬 캐시에 쓰기 위해 보관
+    QString pendingName_;
+    QString pendingPhone_;
+    QString pendingType_;
 
     QWidget* header_         = nullptr;
     QLabel*  titleLabel_     = nullptr;

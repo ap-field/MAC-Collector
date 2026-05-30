@@ -1,7 +1,9 @@
 #include "ui.h"
 #include "db.h"
 #include "mac.h"
+#include "api_client.h"
 
+#include <glog/logging.h>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -164,24 +166,34 @@ void SettingsDialog::saveSettings() {
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         f.write(QJsonDocument(obj).toJson());
         f.close();
+        LOG(INFO) << "SettingsDialog::saveSettings saved to " << path.toStdString();
+    } else {
+        LOG(ERROR) << "SettingsDialog::saveSettings failed to open " << path.toStdString();
     }
 }
 
 void SettingsDialog::onOk() {
+    LOG(INFO) << "SettingsDialog::onOk clicked";
     if (ifaceCombo_->currentText().trimmed().isEmpty()) {
+        LOG(WARNING) << "SettingsDialog::onOk validation failed: empty iface";
         QMessageBox::warning(this, "입력 오류", "네트워크 인터페이스를 입력하세요.");
         return;
     }
     int ch = channelEdit_->text().toInt();
     if (ch < 0 || ch > 14) {
+        LOG(WARNING) << "SettingsDialog::onOk validation failed: channel=" << ch;
         QMessageBox::warning(this, "입력 오류", "채널 번호는 0∼14 사이여야 합니다.");
         return;
     }
     int rssi = rssiEdit_->text().toInt();
     if (rssi < -100 || rssi > -20) {
+        LOG(WARNING) << "SettingsDialog::onOk validation failed: rssi=" << rssi;
         QMessageBox::warning(this, "입력 오류", "RSSI는 -100 ~ -20 사이여야 합니다.");
         return;
     }
+    LOG(INFO) << "SettingsDialog::onOk accepted iface="
+              << ifaceCombo_->currentText().trimmed().toStdString()
+              << " channel=" << ch << " rssi=" << rssi;
     saveSettings();
     accept();
 }
@@ -481,6 +493,8 @@ int Phase1Widget::candidateCount() const {
 void Phase1Widget::onRegisterButtonClicked() {
     auto* btn = qobject_cast<QPushButton*>(sender());
     if (!btn) return;
+    LOG(INFO) << "Phase1Widget register button clicked mac="
+              << btn->property("macStr").toString().toStdString();
     emit registerRequested(btn->property("macStr").toString(),
                            btn->property("timestamp").toString());
 }
@@ -488,6 +502,8 @@ void Phase1Widget::onRegisterButtonClicked() {
 void Phase1Widget::onUpdateButtonClicked() {
     auto* btn = qobject_cast<QPushButton*>(sender());
     if (!btn) return;
+    LOG(INFO) << "Phase1Widget update button clicked mac="
+              << btn->property("macStr").toString().toStdString();
     emit updateRequested(btn->property("macStr").toString());
 }
 
@@ -623,12 +639,15 @@ void Phase2Widget::setUpdateMode(bool isUpdate) {
 }
 
 void Phase2Widget::onConfirm() {
+    LOG(INFO) << "Phase2Widget::onConfirm mac=" << macLabel_->text().toStdString();
     if (nameEdit_->text().trimmed().isEmpty()) {
+        LOG(WARNING) << "Phase2Widget::onConfirm validation failed: empty name";
         QMessageBox::warning(this, "입력 오류", "이름을 입력해주세요.");
         nameEdit_->setFocus();
         return;
     }
     if (phoneEdit_->text().trimmed().isEmpty()) {
+        LOG(WARNING) << "Phase2Widget::onConfirm validation failed: empty phone";
         QMessageBox::warning(this, "입력 오류", "전화번호를 입력해주세요.");
         phoneEdit_->setFocus();
         return;
@@ -637,13 +656,18 @@ void Phase2Widget::onConfirm() {
     static const QStringList typeKeys = {
         "phone", "notebook", "tablet", "iot", "other"
     };
+    QString typeKey = typeKeys.value(typeCombo_->currentIndex(), "other");
+    LOG(INFO) << "Phase2Widget::onConfirm confirmed mac=" << macLabel_->text().toStdString()
+              << " name=" << nameEdit_->text().trimmed().toStdString()
+              << " type=" << typeKey.toStdString();
     emit confirmed(macLabel_->text(),
                    nameEdit_->text().trimmed(),
                    phoneEdit_->text().trimmed(),
-                   typeKeys.value(typeCombo_->currentIndex(), "other"));
+                   typeKey);
 }
 
 void Phase2Widget::onCancel() {
+    LOG(INFO) << "Phase2Widget::onCancel";
     emit canceled();
 }
 
@@ -690,8 +714,8 @@ void Phase3Widget::showCompleted(bool isUpdate) {
 //  AdminPage
 // ════════════════════════════════════════════════
 
-AdminPage::AdminPage(Db* db, QWidget* parent)
-    : QWidget(parent), db_(db)
+AdminPage::AdminPage(Db* db, ApiClient* api, QWidget* parent)
+    : QWidget(parent), db_(db), api_(api)
 {
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(16, 16, 16, 16);
@@ -776,7 +800,24 @@ void AdminPage::focusSearch() {
 }
 
 void AdminPage::onSearch() {
+    LOG(INFO) << "AdminPage::onSearch keyword=" << searchEdit_->text().trimmed().toStdString();
     reloadTable(searchEdit_->text().trimmed());
+}
+
+// DB에 저장된 날짜 문자열을 화면 표시용 yyMMddTHHmmss 로 정규화.
+static QString fmtStationDate(const std::string& raw) {
+    const QString s = QString::fromStdString(raw).trimmed();
+    if (s.isEmpty()) return s;
+
+    static const char* kInputFmts[] = {
+        "yyMMdd'T'HHmmss"
+    };
+    for (const char* f : kInputFmts) {
+        QDateTime dt = QDateTime::fromString(s, f);
+        if (dt.isValid())
+            return dt.toString("yyMMdd'T'HHmmss");
+    }
+    return s;
 }
 
 void AdminPage::reloadTable(const QString& keyword) {
@@ -796,8 +837,8 @@ void AdminPage::reloadTable(const QString& keyword) {
         table_->setItem(row, 1, mkItem(QString::fromStdString(s.name)));
         table_->setItem(row, 2, mkItem(QString::fromStdString(s.phoneNum)));
         table_->setItem(row, 3, mkItem(QString::fromStdString(Db::typeCodeToString(s.type))));
-        table_->setItem(row, 4, mkItem(QString::fromStdString(s.registeredAt)));
-        table_->setItem(row, 5, mkItem(QString::fromStdString(s.updatedAt)));
+        table_->setItem(row, 4, mkItem(fmtStationDate(s.registeredAt)));
+        table_->setItem(row, 5, mkItem(fmtStationDate(s.updatedAt)));
     }
     table_->ensurePolished();
     for (int i = 0; i < 5; ++i)
@@ -807,28 +848,36 @@ void AdminPage::reloadTable(const QString& keyword) {
 void AdminPage::onDeleteSelected() {
     int row = table_->currentRow();
     if (row < 0) {
+        LOG(WARNING) << "AdminPage::onDeleteSelected no row selected";
         QMessageBox::information(this, "안내", "삭제할 항목을 선택하세요.");
         return;
     }
     QString mac  = table_->item(row, 0)->text();
     QString name = table_->item(row, 1)->text();
+    LOG(INFO) << "AdminPage::onDeleteSelected request mac=" << mac.toStdString()
+              << " name=" << name.toStdString();
     if (QMessageBox::question(this, "삭제 확인",
                               QString("%1 (%2) 을 삭제하시겠습니까?").arg(mac, name))
         == QMessageBox::Yes)
     {
+        LOG(INFO) << "AdminPage::onDeleteSelected confirmed mac=" << mac.toStdString();
         db_->removeStation(Mac(mac.toUtf8().constData()));
         reloadTable("");
+    } else {
+        LOG(INFO) << "AdminPage::onDeleteSelected canceled mac=" << mac.toStdString();
     }
 }
 
 void AdminPage::onEditSelected() {
     int row = table_->currentRow();
     if (row < 0) {
+        LOG(WARNING) << "AdminPage::onEditSelected no row selected";
         QMessageBox::information(this, "안내", "수정할 항목을 선택하세요.");
         return;
     }
 
     QString mac     = table_->item(row, 0)->text();
+    LOG(INFO) << "AdminPage::onEditSelected mac=" << mac.toStdString();
     QString name    = table_->item(row, 1)->text();
     QString phone   = table_->item(row, 2)->text();
     QString typeStr = table_->item(row, 3)->text();
@@ -864,17 +913,41 @@ void AdminPage::onEditSelected() {
     if (dlg.exec() == QDialog::Accepted) {
         static const QStringList typeKeys = {
                                              "phone","notebook","tablet","iot","other"};
+        const QString newName  = nameEdit->text();
+        const QString newPhone = phoneEdt->text();
+        const QString typeKey  = typeKeys.value(typeCmb->currentIndex(), "other");
+        const int     typeCode = Db::typeStringToCode(typeKey.toStdString());
+
+        LOG(INFO) << "AdminPage::onEditSelected accepted mac=" << mac.toStdString()
+                  << " name=" << newName.toStdString()
+                  << " phone=" << newPhone.toStdString();
+
+        // 로컬 DB 반영
         db_->updateStation(
             Mac(mac.toUtf8().constData()),
-            nameEdit->text().toStdString(),
-            phoneEdt->text().toStdString(),
-            Db::typeStringToCode(
-                typeKeys.value(typeCmb->currentIndex(), "other").toStdString()));
+            newName.toStdString(),
+            newPhone.toStdString(),
+            typeCode);
+
+        // 서버 반영 (api_ 가 주입된 경우에만; 시나리오 3 update)
+        if (api_) {
+            const QString now = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
+            LOG(INFO) << "AdminPage::onEditSelected -> ApiClient::updateDevice mac="
+                      << mac.toStdString();
+            api_->updateDevice(mac, newName, newPhone, typeCode, now);
+        } else {
+            LOG(WARNING) << "AdminPage::onEditSelected: no ApiClient, local DB only mac="
+                         << mac.toStdString();
+        }
+
         reloadTable("");
+    } else {
+        LOG(INFO) << "AdminPage::onEditSelected canceled mac=" << mac.toStdString();
     }
 }
 
 void AdminPage::onBack() {
+    LOG(INFO) << "AdminPage::onBack";
     emit backRequested();
 }
 
@@ -882,8 +955,8 @@ void AdminPage::onBack() {
 //  KioskWindow
 // ════════════════════════════════════════════════
 
-KioskWindow::KioskWindow(Db* db, QWidget* parent)
-    : QMainWindow(parent), db_(db)
+KioskWindow::KioskWindow(Db* db, ApiClient* api, QWidget* parent)
+    : QMainWindow(parent), db_(db), api_(api)
 {
     Q_ASSERT(db != nullptr);// assert 활용/자동으로 함수 빠짐
     setWindowTitle("MAC 수집 키오스크");
@@ -902,7 +975,7 @@ KioskWindow::KioskWindow(Db* db, QWidget* parent)
     p1_    = new Phase1Widget(this);
     p2_    = new Phase2Widget(this);
     p3_    = new Phase3Widget(this);
-    admin_ = new AdminPage(db_, this);
+    admin_ = new AdminPage(db_, api_, this);
 
     stack_->addWidget(p1_);     // 0
     stack_->addWidget(p2_);     // 1
@@ -931,6 +1004,25 @@ KioskWindow::KioskWindow(Db* db, QWidget* parent)
     connect(admin_, &AdminPage::backRequested,
             this, &KioskWindow::goPhase1);
 
+    // ── ApiClient 응답 시그널 연결 (api_ 가 주입된 경우에만) ──
+    if (api_) {
+        connect(api_, &ApiClient::registerSuccess,
+                this, &KioskWindow::onRegisterSuccess);
+        connect(api_, &ApiClient::registerFailed,
+                this, &KioskWindow::onRegisterFailed);
+        connect(api_, &ApiClient::updateSuccess,
+                this, &KioskWindow::onUpdateSuccess);
+        connect(api_, &ApiClient::updateFailed,
+                this, &KioskWindow::onUpdateFailed);
+        connect(api_, &ApiClient::deviceListFetched,
+                this, &KioskWindow::onDeviceListFetched);
+        connect(api_, &ApiClient::deviceListFailed,
+                this, &KioskWindow::onDeviceListFailed);
+        LOG(INFO) << "KioskWindow: ApiClient signals connected";
+    } else {
+        LOG(WARNING) << "KioskWindow: no ApiClient injected, running local-DB only";
+    }
+
     elapsedTimer_ = new QTimer(this);
     connect(elapsedTimer_, &QTimer::timeout,
             this, &KioskWindow::updateElapsed);
@@ -941,6 +1033,7 @@ KioskWindow::KioskWindow(Db* db, QWidget* parent)
 
 // ── X 버튼 클릭 시 앱 완전 종료 ──
 void KioskWindow::closeEvent(QCloseEvent* event) {
+    LOG(INFO) << "KioskWindow::closeEvent - quitting application";
     QApplication::quit();
     event->accept();
 }
@@ -1074,6 +1167,7 @@ void KioskWindow::buildStatusBar() {
 // ════════════════════════════════════════════════
 
 void KioskWindow::goPhase1() {
+    LOG(INFO) << "KioskWindow::goPhase1";
     stack_->setCurrentIndex(0);
     setChromeVisible(true);
     updatePhaseIndicator(1);
@@ -1084,6 +1178,7 @@ void KioskWindow::goPhase1() {
 
 void KioskWindow::goPhase2Register(QString macStr, QString timestamp)
 {
+    LOG(INFO) << "KioskWindow::goPhase2Register mac=" << macStr.toStdString();
     isUpdateMode_     = false;
     pendingMac_       = macStr;
     pendingTimestamp_ = timestamp;
@@ -1100,6 +1195,7 @@ void KioskWindow::goPhase2Register(QString macStr, QString timestamp)
 }
 
 void KioskWindow::goPhase2Update(QString macStr) {
+    LOG(INFO) << "KioskWindow::goPhase2Update mac=" << macStr.toStdString();
     isUpdateMode_ = true;
     pendingMac_   = macStr;
 
@@ -1124,6 +1220,7 @@ void KioskWindow::goPhase2Update(QString macStr) {
 }
 
 void KioskWindow::goPhase3() {
+    LOG(INFO) << "KioskWindow::goPhase3 isUpdateMode=" << isUpdateMode_;
     stack_->setCurrentIndex(2);
     updatePhaseIndicator(3);
     p3_->showCompleted(isUpdateMode_);
@@ -1135,29 +1232,69 @@ void KioskWindow::goPhase3() {
 }
 
 void KioskWindow::goAdmin() {
+    LOG(INFO) << "KioskWindow::goAdmin";
     admin_->refresh();
     admin_->focusSearch();
     stack_->setCurrentIndex(3);
     setChromeVisible(false);
 }
 
-// ── Phase2 확인 처리 (로컬 DB 저장, timestamp: yyMMddHHmm) ──
+// ── Phase2 확인 처리 ──
+// 서버 우선: ApiClient 로 REST 전송 → 성공 응답 콜백에서 로컬 캐시 저장 + 화면 전환.
+// api_ 가 없으면(오프라인) 기존처럼 로컬 DB 에만 즉시 반영.
 void KioskWindow::onPhase2Confirmed(QString macStr, QString name,
                                     QString phone, QString deviceType)
 {
-    QString now = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
+    LOG(INFO) << "KioskWindow::onPhase2Confirmed mac=" << macStr.toStdString()
+              << " name=" << name.toStdString() << " phone=" << phone.toStdString()
+              << " type=" << deviceType.toStdString()
+              << " isUpdateMode=" << isUpdateMode_;
+
+    // 비동기 응답 콜백에서 로컬 캐시에 반영하기 위해 입력값 보관
+    pendingMac_   = macStr;
+    pendingName_  = name;
+    pendingPhone_ = phone;
+    pendingType_  = deviceType;
+
     int typeCode = Db::typeStringToCode(deviceType.toStdString());
+    QString now  = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
+
+    if (api_) {
+        // 서버 전송 (응답은 onRegisterSuccess/Failed, onUpdateSuccess/Failed 에서 처리)
+        scanStatusLabel_->setText("⏳ 서버 전송 중...");
+        if (isUpdateMode_) {
+            LOG(INFO) << "onPhase2Confirmed -> ApiClient::updateDevice mac=" << macStr.toStdString();
+            api_->updateDevice(macStr, name, phone, typeCode, now);
+        } else {
+            LOG(INFO) << "onPhase2Confirmed -> ApiClient::registerDevice mac=" << macStr.toStdString();
+            api_->registerDevice(macStr, name, phone, typeCode, pendingRssi_, now);
+        }
+        return;  // 응답 대기
+    }
+
+    // ── api_ 미설정(오프라인) 폴백: 로컬 DB 에만 저장 ──
+    LOG(WARNING) << "onPhase2Confirmed: no ApiClient, writing to local DB only";
+    commitConfirmed();
+}
+
+// pending* 멤버를 로컬 캐시(DB)에 반영하고 Phase1 행을 갱신한 뒤 Phase3 로 전환.
+// 서버 성공 응답 또는 오프라인 폴백에서 호출된다.
+void KioskWindow::commitConfirmed() {
+    QString now  = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
+    int typeCode = Db::typeStringToCode(pendingType_.toStdString());
+    LOG(INFO) << "KioskWindow::commitConfirmed mac=" << pendingMac_.toStdString()
+              << " isUpdateMode=" << isUpdateMode_;
 
     if (isUpdateMode_) {
-        db_->updateStation(Mac(macStr.toUtf8().constData()),
-                           name.toStdString(),
-                           phone.toStdString(),
+        db_->updateStation(Mac(pendingMac_.toUtf8().constData()),
+                           pendingName_.toStdString(),
+                           pendingPhone_.toStdString(),
                            typeCode);
     } else {
         StationEntry se;
-        se.mac          = Mac(macStr.toUtf8().constData());
-        se.name         = name.toStdString();
-        se.phoneNum     = phone.toStdString();
+        se.mac          = Mac(pendingMac_.toUtf8().constData());
+        se.name         = pendingName_.toStdString();
+        se.phoneNum     = pendingPhone_.toStdString();
         se.type         = typeCode;
         se.registeredAt = now.toStdString();
         se.updatedAt    = now.toStdString();
@@ -1167,24 +1304,67 @@ void KioskWindow::onPhase2Confirmed(QString macStr, QString name,
     // DB 저장 직후 Phase1 테이블 갱신:
     // seenInSession_ 때문에 candidateFound가 재발생하지 않으므로
     // 직접 행을 교체해야 "등록" 버튼 → 이름/전화번호 + "변경" 버튼으로 반영된다.
-    p1_->removeCandidate(macStr);
-    auto updated = db_->searchStations(macStr.toStdString());
+    p1_->removeCandidate(pendingMac_);
+    auto updated = db_->searchStations(pendingMac_.toStdString());
     if (!updated.empty()) {
         const auto& s = updated[0];
         p1_->showDuplicateNotice(
-            macStr,
+            pendingMac_,
             QString::fromStdString(s.name),
             QString::fromStdString(s.phoneNum),
             pendingRssi_,
             QString::fromStdString(s.registeredAt));
     }
 
+    scanStatusLabel_->setText("🟢 수집 중...");
     goPhase3();
+}
+
+// ── ApiClient 응답 슬롯 ──
+void KioskWindow::onRegisterSuccess(QString mac) {
+    LOG(INFO) << "KioskWindow::onRegisterSuccess mac=" << mac.toStdString();
+    commitConfirmed();  // 서버 성공 → 로컬 캐시에 저장
+}
+
+void KioskWindow::onRegisterFailed(QString mac, QString reason) {
+    LOG(ERROR) << "KioskWindow::onRegisterFailed mac=" << mac.toStdString()
+               << " reason=" << reason.toStdString();
+    scanStatusLabel_->setText("🟢 수집 중...");
+    QMessageBox::warning(this, "등록 실패",
+                         QString("서버 등록에 실패했습니다.\n%1").arg(reason));
+    // Phase2 유지 (화면 전환하지 않음)
+}
+
+void KioskWindow::onUpdateSuccess(QString mac, QString updatedAt) {
+    LOG(INFO) << "KioskWindow::onUpdateSuccess mac=" << mac.toStdString()
+              << " updatedAt=" << updatedAt.toStdString();
+    commitConfirmed();  // 서버 성공 → 로컬 캐시에 반영
+}
+
+void KioskWindow::onUpdateFailed(QString mac, QString reason) {
+    LOG(ERROR) << "KioskWindow::onUpdateFailed mac=" << mac.toStdString()
+               << " reason=" << reason.toStdString();
+    scanStatusLabel_->setText("🟢 수집 중...");
+    QMessageBox::warning(this, "변경 실패",
+                         QString("서버 변경에 실패했습니다.\n%1").arg(reason));
+    // Phase2 유지
+}
+
+void KioskWindow::onDeviceListFetched(QStringList macs) {
+    // 서버 우선 동기화: 서버가 보유한 MAC 목록.
+    // /lists 는 MAC 만 반환하므로 이름/전화번호가 없는 항목은 로컬 캐시에 채울 수 없음.
+    LOG(INFO) << "KioskWindow::onDeviceListFetched serverCount=" << macs.size();
+}
+
+void KioskWindow::onDeviceListFailed(QString reason) {
+    LOG(WARNING) << "KioskWindow::onDeviceListFailed reason=" << reason.toStdString();
 }
 
 // ── 신규 MAC 감지: 로컬 DB 중복 확인 ──
 void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp)
 {
+    LOG(INFO) << "KioskWindow::onCandidateFound mac=" << macStr.toStdString()
+              << " rssi=" << rssi << " ts=" << timestamp.toStdString();
     pendingRssi_ = rssi;
 
     bool exists = db_->macExists(Mac(macStr.toUtf8().constData()));
@@ -1199,15 +1379,18 @@ void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp)
                 QString::fromStdString(s.phoneNum),
                 rssi,
                 QString::fromStdString(s.registeredAt));
+            LOG(INFO) << "KioskWindow::onCandidateFound duplicate mac=" << macStr.toStdString();
             AudioPlayer::instance().play({":/audio/duplicate_notice.wav"});
         }
     } else {
+        LOG(INFO) << "KioskWindow::onCandidateFound new mac=" << macStr.toStdString();
         p1_->addCandidate(macStr, rssi, timestamp);
         AudioPlayer::instance().play({":/audio/mac_detected.wav"});
     }
 }
 
 void KioskWindow::onCaptureError(QString msg) {
+    LOG(ERROR) << "KioskWindow::onCaptureError msg=" << msg.toStdString();
     scanStatusLabel_->setText("🔴 오류: " + msg);
 }
 

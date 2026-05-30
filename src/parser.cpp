@@ -2,6 +2,7 @@
 #include "radiotaphdr.h"
 #include "dot11hdr.h"
 
+#include <glog/logging.h>
 #include <cstring>
 #include <QDebug>
 
@@ -143,5 +144,11 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
     r.ok    = true;
     r.addr2 = frameMac;
     r.rssi  = rssi;
+
+    const char* kindName =
+        (r.kind == FrameKind::Auth)  ? "auth"  :
+        (r.kind == FrameKind::Assoc) ? "assoc" : "eapol";
+    LOG(INFO) << "Parser::parse accepted mac=" << frameMac.toString()
+              << " kind=" << kindName << " rssi=" << rssi;
     return r;
 }

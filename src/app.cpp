@@ -1,7 +1,7 @@
 #include "app.h"
 
 App::App(int argc, char* argv[]){
-    FLAGS_logtostderr = 1;
+    FLAGS_alsologtostderr = true;
     google::InitGoogleLogging(argv[0]);
 
     LOG(INFO) << "mac collector started";
