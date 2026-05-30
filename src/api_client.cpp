@@ -8,7 +8,6 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QUrl>
-#include <QDebug>
 
 ApiClient::ApiClient(const QString& baseUrl, QObject* parent)
     : QObject(parent),
@@ -56,7 +55,6 @@ void ApiClient::registerDevice(const QString& mac,
             resp["status"].toString() == "success")
         {
             LOG(INFO) << "ApiClient::registerDevice success mac=" << mac.toStdString();
-            qDebug() << "[LOG][CREATE] mac=" << mac;   // Logging: CREATE
             emit registerSuccess(mac);
         } else {
             LOG(WARNING) << "ApiClient::registerDevice failed mac=" << mac.toStdString()
@@ -108,7 +106,6 @@ void ApiClient::updateDevice(const QString& mac,
             QString updAt = resp["data"].toObject()["updated_at"].toString();
             LOG(INFO) << "ApiClient::updateDevice success mac=" << mac.toStdString()
                       << " updated_at=" << updAt.toStdString();
-            qDebug() << "[LOG][UPDATE] mac=" << mac << "updated_at=" << updAt; // Logging: UPDATE
             emit updateSuccess(mac, updAt);
         } else {
             LOG(WARNING) << "ApiClient::updateDevice failed mac=" << mac.toStdString()

@@ -80,7 +80,7 @@ void CaptureWorker::run() {
     pcap_freecode(&fp);
 
     pcap_ = pcap;
-    qDebug() << "[CaptureWorker] 캡처 시작 -" << iface_;
+    LOG(INFO) << "[CaptureWorker] 캡처 시작 - " << iface_.toStdString();
 
     // /sys/class/net/{iface}/operstate 를 읽어 인터페이스 up 여부 확인
     auto checkIfaceUp = [&]() -> bool {
@@ -128,7 +128,7 @@ void CaptureWorker::run() {
         // 세션 내 중복 emit 방지
         QString macStr = QString::fromStdString(r.addr2.toString());
         if (seenInSession_.find(r.addr2) != seenInSession_.end()) {
-            qDebug() << "[CAPTURE] 중복 스킵:" << macStr;
+            LOG(INFO) << "[CAPTURE] 중복 스킵: " << macStr.toStdString();
             continue;
         }
         seenInSession_.insert(r.addr2);
@@ -138,19 +138,19 @@ void CaptureWorker::run() {
             (r.kind == Parser::FrameKind::Assoc) ? "assoc" : "eapol";//
         QString ts = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
 
-        qDebug() << "[CAPTURE] MAC 탐지:" << macStr
-                 << "경유:" << kindName
-                 << "RSSI:" << r.rssi;
+        LOG(INFO) << "[CAPTURE] MAC 탐지: " << macStr.toStdString()
+                  << " 경유=" << kindName
+                  << " RSSI=" << r.rssi;
         emit candidateFound(macStr, r.rssi, ts);
     }
 
     if (stopReason.isEmpty())
         stopReason = stop_.load() ? "정지 요청" : "알 수 없는 이유";
 
-    qDebug() << "[CaptureWorker] 캡처 루프 종료 -" << stopReason;
+    LOG(INFO) << "[CaptureWorker] 캡처 루프 종료 - " << stopReason.toStdString();
     pcap_close(pcap_);
     pcap_ = nullptr;
-    qDebug() << "[CaptureWorker] 스레드 종료 완료";
+    LOG(INFO) << "[CaptureWorker] 스레드 종료 완료";
     emit finished();
     LOG(INFO)<< "run end";
 }

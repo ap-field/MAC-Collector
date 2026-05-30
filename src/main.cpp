@@ -62,7 +62,6 @@ int main(int argc, char** argv) {
     }
 
     Db db;
-    qDebug() << "[DEBUG] DB absolute path:" << QFileInfo(dbPath).absoluteFilePath();
     LOG(INFO) << "opening DB path=" << QFileInfo(dbPath).absoluteFilePath().toStdString();
     if (!db.open(dbPath.toStdString())) {
         LOG(ERROR) << "DB open failed path=" << dbPath.toStdString();

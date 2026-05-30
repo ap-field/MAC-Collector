@@ -106,10 +106,10 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
             (subtype == Dot11::SUBTYPE_ASSOC_REQ)   ? "assoc-req" :
             (subtype == Dot11::SUBTYPE_REASSOC_REQ) ? "reassoc-req" :
             (subtype == Dot11::SUBTYPE_PROBE_REQ)   ? "probe-req" : "other";
-        qDebug() << "[PARSER] MGT" << subtypeName
-                 << "from:" << macStr
-                 << "ToDS:" << toDs << "FromDS:" << fromDs
-                 << "RSSI:" << rssi;
+        DLOG(INFO) << "[PARSER] MGT " << subtypeName
+                   << " from=" << macStr.toStdString()
+                   << " ToDS=" << toDs << " FromDS=" << fromDs
+                   << " RSSI=" << rssi;
 
         if (subtype == Dot11::SUBTYPE_AUTH) {
             r.kind = FrameKind::Auth;
@@ -134,8 +134,8 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
         uint16_t etype = (static_cast<uint16_t>(data[llcOff+6]) << 8) | data[llcOff+7];
         if (etype != Dot11::ETHERTYPE_EAPOL) return r;
 
-        qDebug() << "[PARSER] EAPOL from:" << macStr
-                 << "RSSI:" << rssi;
+        DLOG(INFO) << "[PARSER] EAPOL from=" << macStr.toStdString()
+                   << " RSSI=" << rssi;
         r.kind = FrameKind::Eapol;
     } else {
         return r;

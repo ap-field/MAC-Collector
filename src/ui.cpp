@@ -810,7 +810,9 @@ static QString fmtStationDate(const std::string& raw) {
     if (s.isEmpty()) return s;
 
     static const char* kInputFmts[] = {
-        "yyMMdd'T'HHmmss"
+        "yyMMdd'T'HHmmss",
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd'T'HH:mm:ss",
     };
     for (const char* f : kInputFmts) {
         QDateTime dt = QDateTime::fromString(s, f);
