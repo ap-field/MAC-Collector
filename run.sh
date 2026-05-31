@@ -5,7 +5,7 @@ BIN="$SCRIPT_DIR/bin/mac-collector"
 QT_PLUGIN_DIR="$HOME/Qt/6.11.0/gcc_64/plugins/platforminputcontexts"
 
 if [ ! -f "$BIN" ]; then
-    echo "오류: 바이너리 없음. 먼저 빌드하세요."
+    echo "Error: Binary not found. You should build first."
     exit 1
 fi
 
@@ -14,7 +14,7 @@ if ! getcap "$BIN" 2>/dev/null | grep -q cap_net_raw; then
     echo "[권한 설정] pcap capability 적용 중 (sudo 비밀번호 필요)..."
     sudo setcap cap_net_raw,cap_net_admin=eip "$BIN"
     if ! getcap "$BIN" 2>/dev/null | grep -q cap_net_raw; then
-        echo "오류: setcap 적용 실패. sudo ./setup.sh 를 먼저 실행하세요."
+        echo "Error: setcap 적용 실패. sudo ./setup.sh 를 먼저 실행하세요."
         exit 1
     fi
     echo "  → capability 적용 완료"
@@ -26,16 +26,12 @@ fi
 if command -v fcitx5 &>/dev/null && \
    [ -f "$QT_PLUGIN_DIR/libfcitx5platforminputcontextplugin.so" ]; then
     if ! pgrep -x fcitx5 > /dev/null 2>&1; then
-        # 처음 실행 — 데몬 시작 후 hangul 엔진 로드 완료까지 대기
         fcitx5 -d 2>/dev/null || true
-        # fcitx5-remote가 응답할 때까지 최대 3초 대기
         for i in $(seq 15); do
             sleep 0.2
             fcitx5-remote > /dev/null 2>&1 && break
         done
     fi
-    # 이미 실행 중이면 재시작 없이 그대로 사용
-    # (--replace로 매번 재시작하면 엔진 로드 전에 앱이 붙어 한글 입력 실패)
     export QT_IM_MODULE=fcitx
     export XMODIFIERS="@im=fcitx"
     export GTK_IM_MODULE=fcitx
