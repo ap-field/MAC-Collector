@@ -30,6 +30,7 @@ qt_add_executable(mac-collector
     include/api_client.h
     include/app.h
     src/app.cpp
+    run.sh
 )
 
 qt_add_resources(mac-collector "resources"
