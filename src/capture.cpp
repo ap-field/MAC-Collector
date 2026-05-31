@@ -120,7 +120,15 @@ void CaptureWorker::run() {
         }
         timeoutCount = 0;
         if (rc == -2) { stopReason = "pcap_breakloop 호출됨"; break; }
-        if (rc < 0)   { stopReason = QString("pcap 오류: %1").arg(pcap_geterr(pcap_)); break; }
+        if (rc < 0)   {
+            // 무선랜이 실행 중 제거되면 pcap_next_ex 가 -1(읽기 오류)로 떨어지는 경우가 많다.
+            // operstate down 경로(rc==0)와 달리 여기서도 반드시 errorOccurred 를 emit해야
+            // UI 가 치명 오류로 인지하고 종료한다.
+            stopReason = QString("pcap 오류: %1").arg(pcap_geterr(pcap_));
+            emit errorOccurred(
+                QString("패킷 캡처 오류(인터페이스 상실 가능): %1").arg(pcap_geterr(pcap_)));
+            break;
+        }
 
         Parser::Result r = parser_.parse(data, static_cast<int>(hdr->caplen));
         if (!r.ok) continue;

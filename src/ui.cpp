@@ -295,7 +295,7 @@ Phase1Widget::Phase1Widget(QWidget* parent)
         "QLineEdit:focus { border: 2px solid #2563EB; }");
     testLayout->addWidget(testEdit_, 1);
 
-    testResultLabel_ = new QLabel("입력값: -");
+    testResultLabel_ = new QLabel("입력값: ");
     testResultLabel_->setMinimumWidth(200);
     testResultLabel_->setStyleSheet(
         "QLabel { color: #1F2937; font-size: 11pt;"
@@ -1394,6 +1394,17 @@ void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp)
 void KioskWindow::onCaptureError(QString msg) {
     LOG(ERROR) << "KioskWindow::onCaptureError msg=" << msg.toStdString();
     scanStatusLabel_->setText("🔴 오류: " + msg);
+
+    // 캡처는 무선랜 인터페이스에 전적으로 의존한다. 인터페이스가 사라지거나(실행 중
+    // 무선랜 제거) 캡처를 더 진행할 수 없는 오류는 모두 치명적이므로, 죽은 캡처 스레드를
+    // 안은 채 계속 실행하지 않고 사용자에게 알린 뒤 프로그램을 종료한다.
+    if (captureFatal_) return;  // QMessageBox 가 띄우는 중첩 이벤트루프에서의 중복 진입 방지
+    captureFatal_ = true;
+
+    LOG(ERROR) << "KioskWindow::onCaptureError fatal, shutting down";
+    QMessageBox::critical(this, "캡처 중단",
+        QString("무선랜 캡처를 계속할 수 없어 프로그램을 종료합니다.\n\n사유: %1").arg(msg));
+    QApplication::quit();
 }
 
 void KioskWindow::updateElapsed() {

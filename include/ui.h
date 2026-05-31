@@ -215,6 +215,7 @@ private:
 
     bool    isUpdateMode_     = false;
     bool    phase1Entered_    = false;
+    bool    captureFatal_     = false;  // 캡처 치명 오류 처리 중복 방지(인터페이스 상실 등)
     QString pendingMac_;
     QString pendingTimestamp_;
     int     pendingRssi_      = 0;
