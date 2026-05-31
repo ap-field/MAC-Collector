@@ -216,6 +216,9 @@ private:
     bool    isUpdateMode_     = false;
     bool    phase1Entered_    = false;
     bool    captureFatal_     = false;  // 캡처 치명 오류 처리 중복 방지(인터페이스 상실 등)
+    // Phase2 흐름에서 보낸 API 요청만 commitConfirmed 를 타야 한다. AdminPage 수정은
+    // 같은 ApiClient 시그널을 공유하지만 이미 DB 에 직접 썼으므로 commit 대상이 아니다.
+    bool    awaitingApiCommit_ = false;
     QString pendingMac_;
     QString pendingTimestamp_;
     int     pendingRssi_      = 0;

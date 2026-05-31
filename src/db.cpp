@@ -153,9 +153,11 @@ bool Db::updateStation(const Mac& mac,
 
     const char* sql =
         "UPDATE station "
-        // 등록(addStation)과 동일한 yyMMddTHHmmss 형식으로 통일
+        // 등록(addStation)과 동일한 yyMMddTHHmmss 형식으로 통일.
+        // SQLite strftime 은 %y(2자리 연도)를 지원하지 않아 NULL 이 되므로,
+        // %Y(4자리)로 받아 substr(...,3) 으로 앞 2자리를 잘라 2자리 연도로 만든다.
         "SET name=?2, phoneNum=?3, type=?4, "
-        "updated_at=strftime('%y%m%dT%H%M%S','now','localtime') "
+        "updated_at=substr(strftime('%Y%m%dT%H%M%S','now','localtime'),3) "
         "WHERE mac=?1;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {

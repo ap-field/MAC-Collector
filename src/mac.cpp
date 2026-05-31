@@ -1,5 +1,6 @@
 #include "mac.h"
 
+#include <glog/logging.h>
 #include <cstdio>
 #include <cstring>
 
@@ -28,7 +29,12 @@ Mac::Mac(const char* s) {
     int n = std::sscanf(s,
                         "%02x:%02x:%02x:%02x:%02x:%02x",
                         &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]);
-    if (n != SIZE) return;
+    if (n != SIZE) {
+        // 형식 불일치 — MAC 이 00:00:00:00:00:00 으로 남으므로 조용한 오류를 남긴다.
+        LOG(WARNING) << "Mac: 잘못된 MAC 문자열 파싱 실패 input=\"" << s
+                     << "\" parsed=" << n << "/" << SIZE;
+        return;
+    }
 
     for (int i = 0; i < SIZE; ++i) {
         mac_[i] = static_cast<uint8_t>(v[i] & 0xFF);

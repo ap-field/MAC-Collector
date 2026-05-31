@@ -229,6 +229,16 @@ AudioPlayer::AudioPlayer(QObject* parent)
                     playNext();
                 }
             });
+
+    // 재생 실패(파일 로드/코덱 오류 등)는 조용히 묻히므로 반드시 기록한다.
+    connect(player_, &QMediaPlayer::errorOccurred,
+            this, [this](QMediaPlayer::Error error, const QString& errorString) {
+                if (error == QMediaPlayer::NoError) return;
+                LOG(ERROR) << "AudioPlayer 재생 오류 source="
+                           << player_->source().toString().toStdString()
+                           << " error=" << static_cast<int>(error)
+                           << " msg=" << errorString.toStdString();
+            });
 }
 
 void AudioPlayer::play(const QStringList& files) {
@@ -247,6 +257,8 @@ void AudioPlayer::stop() {
 void AudioPlayer::playNext() {
     if (queueIdx_ >= queue_.size()) return;
     const QString path = queue_.at(queueIdx_++);
+    LOG(INFO) << "AudioPlayer::playNext 재생 path=" << path.toStdString()
+              << " (" << queueIdx_ << "/" << queue_.size() << ")";
     if (path.startsWith(":/"))
         player_->setSource(QUrl("qrc" + path));
     else
@@ -943,6 +955,11 @@ void AdminPage::onEditSelected() {
         }
 
         reloadTable("");
+
+        // 수정 완료 음성 안내 (Phase2 흐름의 goPhase3 와 동일한 사운드)
+        LOG(INFO) << "AdminPage::onEditSelected play update_complete audio mac="
+                  << mac.toStdString();
+        AudioPlayer::instance().play({":/audio/update_complete.wav"});
     } else {
         LOG(INFO) << "AdminPage::onEditSelected canceled mac=" << mac.toStdString();
     }
@@ -1263,6 +1280,8 @@ void KioskWindow::onPhase2Confirmed(QString macStr, QString name,
 
     if (api_) {
         // 서버 전송 (응답은 onRegisterSuccess/Failed, onUpdateSuccess/Failed 에서 처리)
+        // 이 흐름의 응답만 commitConfirmed 로 이어지도록 플래그를 세운다.
+        awaitingApiCommit_ = true;
         scanStatusLabel_->setText("⏳ 서버 전송 중...");
         if (isUpdateMode_) {
             LOG(INFO) << "onPhase2Confirmed -> ApiClient::updateDevice mac=" << macStr.toStdString();
@@ -1325,12 +1344,23 @@ void KioskWindow::commitConfirmed() {
 // ── ApiClient 응답 슬롯 ──
 void KioskWindow::onRegisterSuccess(QString mac) {
     LOG(INFO) << "KioskWindow::onRegisterSuccess mac=" << mac.toStdString();
+    if (!awaitingApiCommit_) {
+        // AdminPage 등 Phase2 외 경로의 응답: 해당 경로가 이미 DB 를 처리했으므로 무시.
+        LOG(INFO) << "onRegisterSuccess: not a Phase2 flow, skip commit";
+        return;
+    }
+    awaitingApiCommit_ = false;
     commitConfirmed();  // 서버 성공 → 로컬 캐시에 저장
 }
 
 void KioskWindow::onRegisterFailed(QString mac, QString reason) {
     LOG(ERROR) << "KioskWindow::onRegisterFailed mac=" << mac.toStdString()
                << " reason=" << reason.toStdString();
+    if (!awaitingApiCommit_) {
+        LOG(INFO) << "onRegisterFailed: not a Phase2 flow, skip UI handling";
+        return;
+    }
+    awaitingApiCommit_ = false;
     scanStatusLabel_->setText("🟢 수집 중...");
     QMessageBox::warning(this, "등록 실패",
                          QString("서버 등록에 실패했습니다.\n%1").arg(reason));
@@ -1340,12 +1370,24 @@ void KioskWindow::onRegisterFailed(QString mac, QString reason) {
 void KioskWindow::onUpdateSuccess(QString mac, QString updatedAt) {
     LOG(INFO) << "KioskWindow::onUpdateSuccess mac=" << mac.toStdString()
               << " updatedAt=" << updatedAt.toStdString();
+    if (!awaitingApiCommit_) {
+        // AdminPage 수정 응답: onEditSelected 가 이미 db_->updateStation 으로 반영했으므로
+        // 여기서 commitConfirmed 를 타면 빈 pending* 으로 잘못된 행이 생긴다. 무시한다.
+        LOG(INFO) << "onUpdateSuccess: not a Phase2 flow (admin edit?), skip commit";
+        return;
+    }
+    awaitingApiCommit_ = false;
     commitConfirmed();  // 서버 성공 → 로컬 캐시에 반영
 }
 
 void KioskWindow::onUpdateFailed(QString mac, QString reason) {
     LOG(ERROR) << "KioskWindow::onUpdateFailed mac=" << mac.toStdString()
                << " reason=" << reason.toStdString();
+    if (!awaitingApiCommit_) {
+        LOG(INFO) << "onUpdateFailed: not a Phase2 flow, skip UI handling";
+        return;
+    }
+    awaitingApiCommit_ = false;
     scanStatusLabel_->setText("🟢 수집 중...");
     QMessageBox::warning(this, "변경 실패",
                          QString("서버 변경에 실패했습니다.\n%1").arg(reason));

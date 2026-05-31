@@ -112,6 +112,8 @@ void CaptureWorker::run() {
                 timeoutCount = 0;
                 if (!checkIfaceUp()) {
                     stopReason = QString("인터페이스 %1 down/삭제 감지").arg(iface_);
+                    LOG(ERROR) << "[CaptureWorker] 인터페이스 down/삭제 감지 iface="
+                               << iface_.toStdString() << " (operstate != up)";
                     emit errorOccurred(QString("인터페이스 %1 이(가) down되었습니다.").arg(iface_));
                     break;
                 }
@@ -122,9 +124,12 @@ void CaptureWorker::run() {
         if (rc == -2) { stopReason = "pcap_breakloop 호출됨"; break; }
         if (rc < 0)   {
             // 무선랜이 실행 중 제거되면 pcap_next_ex 가 -1(읽기 오류)로 떨어지는 경우가 많다.
-            // operstate down 경로(rc==0)와 달리 여기서도 반드시 errorOccurred 를 emit해야
-            // UI 가 치명 오류로 인지하고 종료한다.
+            // operstate down 경로(rc==0)와 달리 여기서도 반드시 errorOccurred 를 emit하고 종료한다.
             stopReason = QString("pcap 오류: %1").arg(pcap_geterr(pcap_));
+            LOG(ERROR) << "[CaptureWorker] pcap_next_ex 오류 rc=" << rc
+                       << " iface=" << iface_.toStdString()
+                       << " err=" << pcap_geterr(pcap_)
+                       << " (인터페이스 상실 가능)";
             emit errorOccurred(
                 QString("패킷 캡처 오류(인터페이스 상실 가능): %1").arg(pcap_geterr(pcap_)));
             break;
