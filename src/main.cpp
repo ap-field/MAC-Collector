@@ -71,8 +71,6 @@ int main(int argc, char** argv) {
     }
 
     // ── REST 백엔드 ──
-    // TODO: 여기에 .com 서버 주소를 입력하세요 (예: "https://api.example.com")
-    //       비워두면 ApiClient 없이 로컬 DB 전용으로 동작합니다.
     const QString kApiBaseUrl = "https://ap-field.com";
     // 서버 연동은 필수. 주소가 비어 있으면 로컬 전용으로 계속하지 않고 즉시 종료한다.
     if (kApiBaseUrl.isEmpty()) {
@@ -83,12 +81,14 @@ int main(int argc, char** argv) {
         return 3;
     }
 
-    ApiClient* api = new ApiClient(kApiBaseUrl);
+    // 스택에 생성해 main 종료 시 자동 소멸 → 수동 new/delete 불필요(메모리 누수 방지).
+    // db 와 동일한 방식. win 이 api 보다 먼저 소멸하므로 dangling 위험 없음.
+    ApiClient api(kApiBaseUrl);
     LOG(INFO) << "ApiClient created baseUrl=" << kApiBaseUrl.toStdString();
     // 서버 우선: 시작 시 등록된 MAC 목록을 1회 동기화
-    api->fetchDeviceList();
+    api.fetchDeviceList();
 
-    KioskWindow win(&db, api);
+    KioskWindow win(&db, &api);
     win.show();
     LOG(INFO) << "KioskWindow shown";
 
@@ -104,10 +104,13 @@ int main(int argc, char** argv) {
                      &win,    &KioskWindow::onCandidateFound);
     QObject::connect(worker,  &CaptureWorker::errorOccurred,
                      &win,    &KioskWindow::onCaptureError);
-    QObject::connect(worker,  &CaptureWorker::finished,
-                     &thread, &QThread::quit);
-    QObject::connect(&thread, &QThread::finished,
-                     worker,  &QObject::deleteLater);
+    QObject::connect(worker,  &CaptureWorker::captureStarted,
+                     &win,    &KioskWindow::onCaptureStarted);
+    // 오류로 run() 이 반환돼도 스레드는 idle 이벤트 루프로 살아 있다. 재시도 버튼을 누르면
+    // (큐 연결로) 워커 스레드에서 run() 이 다시 호출돼 캡처를 재개한다. finished→quit 를
+    // 연결하지 않으므로 단발 오류로 스레드가 죽지 않는다.
+    QObject::connect(&win,    &KioskWindow::captureRetryRequested,
+                     worker,  &CaptureWorker::run);
 
     QObject::connect(&app, &QCoreApplication::aboutToQuit, [&]() {
         LOG(INFO) << "aboutToQuit: stopping capture worker";
@@ -118,6 +121,8 @@ int main(int argc, char** argv) {
             thread.terminate();
             thread.wait();
         }
+        delete worker;   // 스레드 정지 후 안전하게 해제 (수동 new/delete 누수 방지)
+        worker = nullptr;
     });
 
     thread.start();

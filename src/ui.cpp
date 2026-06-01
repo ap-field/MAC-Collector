@@ -363,6 +363,13 @@ Phase1Widget::Phase1Widget(QWidget* parent)
         "  border-bottom: 1px solid #F3F4F6; }"
         "QTableWidget::item:hover { background: #F9FAFB; color: #111827; }");
     root->addWidget(table_, 1);
+
+    // 등록 완료된(중복/서버) 행을 5분마다 자동 정리. 미등록 후보 행은 보존한다.
+    autoRefreshTimer_ = new QTimer(this);
+    autoRefreshTimer_->setInterval(5 * 60 * 1000);
+    connect(autoRefreshTimer_, &QTimer::timeout,
+            this, &Phase1Widget::clearRegistered);
+    autoRefreshTimer_->start();
 }
 
 void Phase1Widget::addCandidate(const QString& macStr, int rssi,
@@ -496,6 +503,18 @@ void Phase1Widget::removeCandidate(const QString& macStr) {
 void Phase1Widget::clearCandidates() {
     table_->setRowCount(0);
     emit candidateCountChanged(0);
+}
+
+void Phase1Widget::clearRegistered() {
+    // 테이블을 역방향으로 순회: 열 3의 cellWidget 이 QPushButton("등록")이면
+    // 아직 미등록 후보이므로 보존하고, 그 외(badge+변경 묶음 위젯)는 등록된
+    // 항목이므로 행을 제거한다. 역방향이라 removeRow 후 인덱스가 밀리지 않는다.
+    for (int i = table_->rowCount() - 1; i >= 0; --i) {
+        if (qobject_cast<QPushButton*>(table_->cellWidget(i, 3)))
+            continue;                 // 미등록 후보 → 유지
+        table_->removeRow(i);         // 등록된 항목 → 삭제
+    }
+    emit candidateCountChanged(table_->rowCount());
 }
 
 int Phase1Widget::candidateCount() const {
@@ -914,7 +933,7 @@ void AdminPage::onEditSelected() {
     phoneEdt->setAttribute(Qt::WA_InputMethodEnabled, true);
 
     form->addRow("MAC (수정 불가):", macLbl);
-    form->addRow("이름:",            nameEdit);
+    form->addRow("이름:",           nameEdit);
     form->addRow("전화번호:",        phoneEdt);
     form->addRow("기기 종류:",       typeCmb);
 
@@ -1163,6 +1182,16 @@ void KioskWindow::buildStatusBar() {
     elapsedLabel_->setStyleSheet(
         "QLabel { color: #374151; font-size: 10pt; }");
 
+    // 캡처 오류 시에만 나타나는 재시도 버튼 (평소엔 숨김)
+    retryBtn_ = new QPushButton("🔄 재시도");
+    retryBtn_->setMinimumSize(90, 28);
+    retryBtn_->setCursor(Qt::PointingHandCursor);
+    retryBtn_->setStyleSheet(
+        "QPushButton { background: #DC2626; color: white; border: none;"
+        "  border-radius: 4px; font-size: 9pt; }"
+        "QPushButton:hover { background: #B91C1C; }");
+    retryBtn_->hide();
+
     adminBtn_ = new QPushButton("⚙ 관리자");
     adminBtn_->setMinimumSize(90, 28);
     adminBtn_->setCursor(Qt::PointingHandCursor);
@@ -1175,10 +1204,23 @@ void KioskWindow::buildStatusBar() {
     sbl->addStretch(1);
     sbl->addWidget(deviceCountLabel_);
     sbl->addWidget(elapsedLabel_);
+    sbl->addWidget(retryBtn_);
     sbl->addWidget(adminBtn_);
 
     connect(adminBtn_, &QPushButton::clicked,
             this, &KioskWindow::goAdmin);
+
+    // 재시도: 무선랜 복구 후 운영자가 눌러 캡처를 재개한다. 캡처 워커 스레드는 죽지
+    // 않고 idle 로 살아 있으므로, captureRetryRequested 시그널이 run() 을 다시 호출한다.
+    connect(retryBtn_, &QPushButton::clicked, this, [this]() {
+        LOG(INFO) << "KioskWindow retry button clicked, requesting capture restart";
+        retryBtn_->hide();
+        scanStatusLabel_->setText("🟡 재연결 시도 중...");
+        scanStatusLabel_->setStyleSheet(
+            "QLabel { color: #92400E; font-size: 10pt; }");
+        // captureFatal_ 은 성공(onCaptureStarted) 시까지 유지 → 재시도 실패 시 경고창 중복 방지
+        emit captureRetryRequested();
+    });
 }
 
 // ════════════════════════════════════════════════
@@ -1192,7 +1234,7 @@ void KioskWindow::goPhase1() {
     updatePhaseIndicator(1);
     isUpdateMode_  = false;
     phase1Entered_ = true;
-    AudioPlayer::instance().play({":/audio/scan_guide.wav"});  // 경로 버그 수정
+    AudioPlayer::instance().play({":/audio/scan_guide.wav"});
 }
 
 void KioskWindow::goPhase2Register(QString macStr, QString timestamp)
@@ -1445,18 +1487,30 @@ void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp)
 
 void KioskWindow::onCaptureError(QString msg) {
     LOG(ERROR) << "KioskWindow::onCaptureError msg=" << msg.toStdString();
-    scanStatusLabel_->setText("🔴 오류: " + msg);
+    // 캡처 오류가 나도 프로그램을 종료하지 않는다. 상태표시줄에 에러 사유를 남기고
+    // '재시도' 버튼을 띄워, 무선랜 복구 후 운영자가 직접 캡처를 재개할 수 있게 한다.
+    scanStatusLabel_->setText("🔴 캡처 오류: " + msg);
+    scanStatusLabel_->setStyleSheet(
+        "QLabel { color: #B91C1C; font-size: 10pt; }");
+    retryBtn_->show();
 
-    // 캡처는 무선랜 인터페이스에 전적으로 의존한다. 인터페이스가 사라지거나(실행 중
-    // 무선랜 제거) 캡처를 더 진행할 수 없는 오류는 모두 치명적이므로, 죽은 캡처 스레드를
-    // 안은 채 계속 실행하지 않고 사용자에게 알린 뒤 프로그램을 종료한다.
-    if (captureFatal_) return;  // QMessageBox 가 띄우는 중첩 이벤트루프에서의 중복 진입 방지
+    if (captureFatal_) return;  // 같은 오류 에피소드에서 경고창 중복 표시 방지
     captureFatal_ = true;
 
-    LOG(ERROR) << "KioskWindow::onCaptureError fatal, shutting down";
-    QMessageBox::critical(this, "캡처 중단",
-        QString("무선랜 캡처를 계속할 수 없어 프로그램을 종료합니다.\n\n사유: %1").arg(msg));
-    QApplication::quit();
+    LOG(ERROR) << "KioskWindow::onCaptureError capture stopped (program keeps running)";
+    QMessageBox::warning(this, "캡처 중단",
+        QString("무선랜 캡처가 중단되었습니다. 프로그램은 계속 실행됩니다.\n\n"
+                "무선랜을 복구한 뒤 하단의 '재시도' 버튼을 눌러 주세요.\n\n사유: %1").arg(msg));
+}
+
+void KioskWindow::onCaptureStarted() {
+    // 최초 시작 또는 재시도 성공 → 정상 수집 상태로 복귀
+    LOG(INFO) << "KioskWindow::onCaptureStarted capture running";
+    captureFatal_ = false;
+    retryBtn_->hide();
+    scanStatusLabel_->setText("🟢 수집 중...");
+    scanStatusLabel_->setStyleSheet(
+        "QLabel { color: #065F46; font-size: 10pt; }");
 }
 
 void KioskWindow::updateElapsed() {

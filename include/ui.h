@@ -86,11 +86,13 @@ signals:
 private slots:
     void onRegisterButtonClicked();
     void onUpdateButtonClicked();
+    void clearRegistered();
 
 private:
     QTableWidget* table_;
     QLineEdit*    testEdit_        = nullptr;
     QLabel*       testResultLabel_ = nullptr;
+    QTimer*       autoRefreshTimer_ = nullptr;
 };
 
 // ────────── Phase2Widget ──────────
@@ -174,9 +176,15 @@ class KioskWindow : public QMainWindow {
 public:
     explicit KioskWindow(Db* db, ApiClient* api = nullptr, QWidget* parent = nullptr);
 
+signals:
+    // 사용자가 '재시도' 버튼을 눌렀을 때 emit → CaptureWorker::run() 재호출 트리거
+    void captureRetryRequested();
+
 public slots:
     void onCandidateFound(QString macStr, int rssi, QString timestamp);
     void onCaptureError(QString msg);
+    // 캡처(최초/재시도)가 성공적으로 시작됐을 때 → 🟢 수집 중 복귀, 재시도 버튼 숨김
+    void onCaptureStarted();
 
     // ── ApiClient 응답 처리 ──
     void onRegisterSuccess(QString mac);
@@ -254,6 +262,7 @@ private:
     QLabel*      scanStatusLabel_  = nullptr;
     QLabel*      deviceCountLabel_ = nullptr;
     QLabel*      elapsedLabel_     = nullptr;
+    QPushButton* retryBtn_         = nullptr;  // 캡처 오류 시에만 표시되는 '재시도' 버튼
     QPushButton* adminBtn_         = nullptr;
 
     QTimer* elapsedTimer_   = nullptr;

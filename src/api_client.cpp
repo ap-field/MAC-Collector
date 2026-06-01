@@ -37,7 +37,7 @@ void ApiClient::registerDevice(const QString& mac,
               << " type=" << deviceType << " rssi=" << rssi;
 
     QNetworkRequest req((QUrl(url)));
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");//before post, after reuqest
 
     QNetworkReply* reply = nam_->post(req, QJsonDocument(body).toJson());
 

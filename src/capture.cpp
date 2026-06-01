@@ -81,6 +81,8 @@ void CaptureWorker::run() {
 
     pcap_ = pcap;
     LOG(INFO) << "[CaptureWorker] 캡처 시작 - " << iface_.toStdString();
+    // 최초 시작/재시도 성공을 UI 에 알림 → 🟢 수집 중 상태로 복귀, 재시도 버튼 숨김
+    emit captureStarted();
 
     // /sys/class/net/{iface}/operstate 를 읽어 인터페이스 up 여부 확인
     auto checkIfaceUp = [&]() -> bool {
