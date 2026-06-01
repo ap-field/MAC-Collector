@@ -103,9 +103,9 @@ void CaptureWorker::run() {
     while (!stop_.load()) {
         pcap_pkthdr*   hdr  = nullptr;
         const uint8_t* data = nullptr;
-        DLOG(INFO) << "bef pcap_next_ex";
+        LOG(INFO) << "bef pcap_next_ex";
         int rc = pcap_next_ex(pcap_, &hdr, &data);
-        DLOG(INFO) << "aft pcap_next_ex" << rc;
+        LOG(INFO) << "aft pcap_next_ex" << rc;
         if (rc == 0) {
             // 패킷 없음(timeout) — 약 1초(100ms × 10)마다 인터페이스 상태 확인
             if (++timeoutCount >= 10) {

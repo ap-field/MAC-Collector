@@ -1,6 +1,7 @@
 #pragma once
 #include <QDialog>
 #include <QMainWindow>
+#include <QSet>
 #include <QString>
 #include <QWidget>
 
@@ -212,6 +213,10 @@ private:
 
     Db*        db_;
     ApiClient* api_ = nullptr;
+
+    // 서버(/lists)가 보유한 MAC 집합. 로컬 DB 에는 없지만 서버엔 등록된 MAC 을
+    // 중복 판단에 쓰기 위해 보관(대문자 정규화). /lists 는 이름/전화는 주지 않음.
+    QSet<QString> serverMacs_;
 
     bool    isUpdateMode_     = false;
     bool    phase1Entered_    = false;

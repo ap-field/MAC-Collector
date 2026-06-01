@@ -1397,6 +1397,10 @@ void KioskWindow::onUpdateFailed(QString mac, QString reason) {
 void KioskWindow::onDeviceListFetched(QStringList macs) {
     // 서버 우선 동기화: 서버가 보유한 MAC 목록.
     // /lists 는 MAC 만 반환하므로 이름/전화번호가 없는 항목은 로컬 캐시에 채울 수 없음.
+    // 대신 MAC 집합을 보관해 두고, 로컬 DB 에 없더라도 서버에 있으면 중복으로 판정한다.
+    serverMacs_.clear();
+    for (const QString& m : macs)
+        serverMacs_.insert(m.toUpper());
     LOG(INFO) << "KioskWindow::onDeviceListFetched serverCount=" << macs.size();
 }
 
@@ -1423,9 +1427,15 @@ void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp)
                 QString::fromStdString(s.phoneNum),
                 rssi,
                 QString::fromStdString(s.registeredAt));
-            LOG(INFO) << "KioskWindow::onCandidateFound duplicate mac=" << macStr.toStdString();
+            LOG(INFO) << "KioskWindow::onCandidateFound duplicate(local) mac=" << macStr.toStdString();
             AudioPlayer::instance().play({":/audio/duplicate_notice.wav"});
         }
+    } else if (serverMacs_.contains(macStr.toUpper())) {
+        // 로컬 DB 에는 없지만 서버에는 등록된 MAC: 신규가 아니라 "이미 등록됨"으로 처리.
+        // /lists 는 이름/전화를 주지 않으므로 해당 칸은 비워서 안내한다.
+        p1_->showDuplicateNotice(macStr, QString(), QString(), rssi, QString());
+        LOG(INFO) << "KioskWindow::onCandidateFound duplicate(server) mac=" << macStr.toStdString();
+        AudioPlayer::instance().play({":/audio/duplicate_notice.wav"});
     } else {
         LOG(INFO) << "KioskWindow::onCandidateFound new mac=" << macStr.toStdString();
         p1_->addCandidate(macStr, rssi, timestamp);
