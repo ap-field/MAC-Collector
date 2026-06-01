@@ -3,8 +3,8 @@
 #include <filesystem>
 
 App::App(int argc, char* argv[]){
-    // /tmp은 재부팅 시 삭제되므로 영구 보존되는 ./var/tmp에 로그를 저장한다.
-    const std::filesystem::path log_dir = std::filesystem::current_path() / "var" / "tmp" /"mac-collector-log";
+    // /tmp은 재부팅 시 삭제되므로 영구 보존되는 ./log에 로그를 저장한다.
+    const std::filesystem::path log_dir = std::filesystem::current_path() / "log" ;
     std::error_code ec;
     std::filesystem::create_directories(log_dir, ec);
     if (!ec) {
