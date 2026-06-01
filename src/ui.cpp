@@ -27,8 +27,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QDateTime>
-#include <QMediaPlayer>
-#include <QAudioOutput>
+#include <QSoundEffect>
 #include <QIntValidator>
 #include <QStandardPaths>
 #include <QDir>
@@ -215,30 +214,24 @@ AudioPlayer& AudioPlayer::instance() {
 AudioPlayer::AudioPlayer(QObject* parent)
     : QObject(parent)
 {
-    player_   = new QMediaPlayer(this);
-    audioOut_ = new QAudioOutput(this);
-    player_->setAudioOutput(audioOut_);
-    audioOut_->setVolume(1.0f);
+    // QMediaPlayer 대신 QSoundEffect 사용. 재생 파일이 모두 짧은 PCM wav 라
+    // 무거운 FFmpeg 미디어 파이프라인이 필요 없고, QSoundEffect 는 그 백엔드를
+    // 거치지 않아 재생 시마다 발생하던 누수가 사라진다.
+    effect_ = new QSoundEffect(this);
+    effect_->setVolume(1.0);
 
-    // EndOfMedia 이벤트로 다음 파일 재생 (StoppedState보다 안정적)
-    connect(player_, &QMediaPlayer::mediaStatusChanged,
-            this, [this](QMediaPlayer::MediaStatus status) {
-                if (status == QMediaPlayer::EndOfMedia
-                    && queueIdx_ < queue_.size())
-                {
-                    playNext();
-                }
-            });
+    // 한 파일 재생이 끝나(재생 상태가 false 로 전환) 큐에 남은 파일이 있으면 다음 재생.
+    connect(effect_, &QSoundEffect::playingChanged, this, [this]() {
+        if (!effect_->isPlaying() && queueIdx_ < queue_.size())
+            playNext();
+    });
 
-    // 재생 실패(파일 로드/코덱 오류 등)는 조용히 묻히므로 반드시 기록한다.
-    connect(player_, &QMediaPlayer::errorOccurred,
-            this, [this](QMediaPlayer::Error error, const QString& errorString) {
-                if (error == QMediaPlayer::NoError) return;
-                LOG(ERROR) << "AudioPlayer 재생 오류 source="
-                           << player_->source().toString().toStdString()
-                           << " error=" << static_cast<int>(error)
-                           << " msg=" << errorString.toStdString();
-            });
+    // 재생 실패(파일 로드 오류 등)는 조용히 묻히므로 반드시 기록한다.
+    connect(effect_, &QSoundEffect::statusChanged, this, [this]() {
+        if (effect_->status() == QSoundEffect::Error)
+            LOG(ERROR) << "AudioPlayer(QSoundEffect) 재생 오류 source="
+                       << effect_->source().toString().toStdString();
+    });
 }
 
 void AudioPlayer::play(const QStringList& files) {
@@ -249,9 +242,10 @@ void AudioPlayer::play(const QStringList& files) {
 }
 
 void AudioPlayer::stop() {
-    player_->stop();
+    // playingChanged 핸들러가 다음 곡을 재생하지 않도록 큐를 먼저 비운 뒤 정지한다.
     queue_.clear();
     queueIdx_ = 0;
+    effect_->stop();
 }
 
 void AudioPlayer::playNext() {
@@ -260,10 +254,10 @@ void AudioPlayer::playNext() {
     LOG(INFO) << "AudioPlayer::playNext 재생 path=" << path.toStdString()
               << " (" << queueIdx_ << "/" << queue_.size() << ")";
     if (path.startsWith(":/"))
-        player_->setSource(QUrl("qrc" + path));
+        effect_->setSource(QUrl("qrc" + path));
     else
-        player_->setSource(QUrl::fromLocalFile(path));
-    player_->play();
+        effect_->setSource(QUrl::fromLocalFile(path));
+    effect_->play();
 }
 
 // ════════════════════════════════════════════════

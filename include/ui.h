@@ -12,8 +12,7 @@ class QComboBox;
 class QPushButton;
 class QLabel;
 class QTimer;
-class QMediaPlayer;
-class QAudioOutput;
+class QSoundEffect;
 class QSpinBox;
 class QCloseEvent;
 class Db;
@@ -55,8 +54,7 @@ private:
     explicit AudioPlayer(QObject* parent = nullptr);
     void playNext();
 
-    QMediaPlayer*  player_;
-    QAudioOutput*  audioOut_;
+    QSoundEffect*  effect_ = nullptr;
     QStringList    queue_;
     int            queueIdx_ = 0;
 };
