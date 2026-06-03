@@ -2,10 +2,21 @@
 
 #include <QObject>
 #include <QString>
+#include <QVector>
 #include <QJsonArray>
 #include <QJsonObject>
 
 class QNetworkAccessManager;
+
+// 서버 /v1/devices/lists 응답의 단일 디바이스 정보
+struct DeviceRecord {
+    QString mac;            // 대문자 "AA:BB:CC:DD:EE:FF"
+    QString name;
+    QString phone;
+    int     type = 0;       // 0=기타 1=노트북 2=핸드폰 3=태블릿 4=IoT
+    QString registeredAt;   // "yyMMddTHHmmss"
+    QString updatedAt;      // 없으면 빈 문자열
+};
 
 class ApiClient : public QObject {
     Q_OBJECT
@@ -37,8 +48,8 @@ signals:
     void updateSuccess(QString mac, QString updatedAt);
     void updateFailed(QString mac, QString reason);
 
-    // 조회 성공: 등록된 MAC 목록 반환
-    void deviceListFetched(QStringList macs);
+    // 조회 성공: 등록된 디바이스 전체 정보 반환
+    void deviceListFetched(QVector<DeviceRecord> devices);
     void deviceListFailed(QString reason);
 
 private:

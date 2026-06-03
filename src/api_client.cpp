@@ -135,12 +135,24 @@ void ApiClient::fetchDeviceList()
             return;
         }
         QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();
-        // 응답: { "mac": ["AA:AA:...", "BB:BB:..."] }
-        QJsonArray arr = resp["mac"].toArray();
-        QStringList macs;
-        for (const auto& v : arr)
-            macs << v.toString().toUpper();
-        LOG(INFO) << "ApiClient::fetchDeviceList success count=" << macs.size();
-        emit deviceListFetched(macs);
+        // 실제 응답 형태:
+        // { "data": [ { "mac":..., "name":..., "phone_num":..., "device_type":"1",
+        //               "request_at":"yyMMddTHHmmss" }, ... ] }
+        QJsonArray arr = resp["data"].toArray();
+        QVector<DeviceRecord> devices;
+        devices.reserve(arr.size());
+        for (const auto& v : arr) {
+            QJsonObject o = v.toObject();
+            DeviceRecord d;
+            d.mac          = o["mac"].toString().toUpper();
+            d.name         = o["name"].toString();
+            d.phone        = o["phone_num"].toString();
+            d.type         = o["device_type"].toString().toInt();
+            d.registeredAt = o["request_at"].toString();
+            d.updatedAt    = o["updated_at"].toString();
+            devices.push_back(d);
+        }
+        LOG(INFO) << "ApiClient::fetchDeviceList success count=" << devices.size();
+        emit deviceListFetched(devices);
     });
 }

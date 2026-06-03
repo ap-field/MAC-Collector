@@ -32,6 +32,8 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QFileInfo>
+#include <algorithm>
+#include <set>
 // ════════════════════════════════════════════════
 //  SettingsDialog
 // ════════════════════════════════════════════════
@@ -789,9 +791,9 @@ AdminPage::AdminPage(Db* db, ApiClient* api, QWidget* parent)
     topRow->addWidget(backBtn_);
     root->addLayout(topRow);
 
-    table_ = new QTableWidget(0, 6);
+    table_ = new QTableWidget(0, 5);
     table_->setHorizontalHeaderLabels(
-        {"MAC", "이름", "전화번호", "기기", "등록일", "수정일"});
+        {"MAC", "이름", "전화번호", "기기", "반영일"});
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->horizontalHeader()->setHighlightSections(false);
     table_->verticalHeader()->setVisible(false);
@@ -814,9 +816,24 @@ AdminPage::AdminPage(Db* db, ApiClient* api, QWidget* parent)
     connect(deleteBtn_,  &QPushButton::clicked,       this, &AdminPage::onDeleteSelected);
     connect(editBtn_,    &QPushButton::clicked,       this, &AdminPage::onEditSelected);
     connect(backBtn_,    &QPushButton::clicked,       this, &AdminPage::onBack);
+
+    // 서버(API) 목록 응답을 직접 받아 테이블을 서버 우선으로 갱신한다.
+    if (api_) {
+        connect(api_, &ApiClient::deviceListFetched,
+                this, &AdminPage::onServerListFetched);
+        connect(api_, &ApiClient::deviceListFailed,
+                this, &AdminPage::onServerListFailed);
+    }
 }
 
 void AdminPage::refresh() {
+    // 관리자 페이지 진입 시 서버 목록을 우선적으로 다시 받아온다.
+    // 응답이 도착하면 onServerListFetched 에서 테이블이 서버 데이터로 갱신된다.
+    if (api_) {
+        LOG(INFO) << "AdminPage::refresh fetch server device list";
+        api_->fetchDeviceList();
+    }
+    // 응답 대기 중에도 현재 보유한(서버 우선) 데이터로 즉시 렌더한다.
     reloadTable("");
 }
 
@@ -847,10 +864,63 @@ static QString fmtStationDate(const std::string& raw) {
     return s;
 }
 
+// 서버(API) 응답 수신: 스냅샷을 보관하고 테이블을 서버 우선으로 갱신.
+void AdminPage::onServerListFetched(QVector<DeviceRecord> devices) {
+    serverDevices_   = devices;
+    serverDataReady_ = true;
+    LOG(INFO) << "AdminPage::onServerListFetched count=" << devices.size();
+    // 현재 검색어를 유지한 채 서버 데이터로 다시 그린다.
+    reloadTable(searchEdit_->text().trimmed());
+}
+
+// 서버 조회 실패: 서버 스냅샷을 갱신하지 않고 로컬 DB 로 폴백 렌더.
+void AdminPage::onServerListFailed(QString reason) {
+    LOG(WARNING) << "AdminPage::onServerListFailed reason=" << reason.toStdString()
+                 << " -> fallback to local DB";
+    reloadTable(searchEdit_->text().trimmed());
+}
+
 void AdminPage::reloadTable(const QString& keyword) {
-    auto list = keyword.isEmpty()
-    ? db_->listStations()
-    : db_->searchStations(keyword.toStdString());
+    // keyword 를 mac/이름/전화번호에 대해 대소문자 무시 부분일치로 검사.
+    std::string kw = keyword.toStdString();
+    std::transform(kw.begin(), kw.end(), kw.begin(), ::tolower);
+    auto matches = [&](const StationEntry& s) {
+        if (kw.empty()) return true;
+        auto has = [&](std::string f) {
+            std::transform(f.begin(), f.end(), f.begin(), ::tolower);
+            return f.find(kw) != std::string::npos;
+        };
+        return has(s.mac.toString()) || has(s.name) || has(s.phoneNum);
+    };
+
+    std::vector<StationEntry> list;
+    if (serverDataReady_) {
+        // ── API(서버) 데이터 우선 표시 ──
+        std::set<std::string> serverMacs;
+        for (const DeviceRecord& d : serverDevices_) {
+            StationEntry se;
+            se.mac          = Mac(d.mac.toUtf8().constData());
+            se.name         = d.name.toStdString();
+            se.phoneNum     = d.phone.toStdString();
+            se.type         = d.type;
+            se.registeredAt = d.registeredAt.toStdString();
+            serverMacs.insert(d.mac.toUpper().toStdString());
+            if (matches(se)) list.push_back(se);
+        }
+        // 서버에는 아직 없는 로컬 전용 레코드도 누락 없이 함께 표시한다.
+        for (const auto& s : db_->listStations()) {
+            std::string macUp = s.mac.toString();
+            std::transform(macUp.begin(), macUp.end(), macUp.begin(), ::toupper);
+            if (!serverMacs.count(macUp) && matches(s))
+                list.push_back(s);
+        }
+    } else {
+        // ── 서버 데이터 미수신 → 로컬 DB 폴백 ──
+        auto dbList = keyword.isEmpty()
+            ? db_->listStations()
+            : db_->searchStations(keyword.toStdString());
+        list.assign(dbList.begin(), dbList.end());
+    }
     auto mkItem = [](const QString& t) {
         auto* it = new QTableWidgetItem(t);
         it->setForeground(QBrush(QColor("#111827")));
@@ -865,10 +935,9 @@ void AdminPage::reloadTable(const QString& keyword) {
         table_->setItem(row, 2, mkItem(QString::fromStdString(s.phoneNum)));
         table_->setItem(row, 3, mkItem(QString::fromStdString(Db::typeCodeToString(s.type))));
         table_->setItem(row, 4, mkItem(fmtStationDate(s.registeredAt)));
-        table_->setItem(row, 5, mkItem(fmtStationDate(s.updatedAt)));
     }
     table_->ensurePolished();
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < 4; ++i)
         table_->resizeColumnToContents(i);
 }
 
@@ -889,6 +958,12 @@ void AdminPage::onDeleteSelected() {
     {
         LOG(INFO) << "AdminPage::onDeleteSelected confirmed mac=" << mac.toStdString();
         db_->removeStation(Mac(mac.toUtf8().constData()));
+        // 서버 우선 표시 중이면 스냅샷에서도 제거해 삭제가 즉시 반영되도록 한다.
+        const QString macUp = mac.toUpper();
+        serverDevices_.erase(
+            std::remove_if(serverDevices_.begin(), serverDevices_.end(),
+                           [&](const DeviceRecord& d) { return d.mac.toUpper() == macUp; }),
+            serverDevices_.end());
         reloadTable("");
     } else {
         LOG(INFO) << "AdminPage::onDeleteSelected canceled mac=" << mac.toStdString();
@@ -965,6 +1040,18 @@ void AdminPage::onEditSelected() {
         } else {
             LOG(WARNING) << "AdminPage::onEditSelected: no ApiClient, local DB only mac="
                          << mac.toStdString();
+        }
+
+        // 서버 우선 표시 중이면 스냅샷도 갱신해 수정이 즉시 반영되도록 한다.
+        // (updated_at 은 다음 fetchDeviceList 응답에서 서버 값으로 정정됨)
+        const QString macUp = mac.toUpper();
+        for (DeviceRecord& d : serverDevices_) {
+            if (d.mac.toUpper() == macUp) {
+                d.name  = newName;
+                d.phone = newPhone;
+                d.type  = typeCode;
+                break;
+            }
         }
 
         reloadTable("");
@@ -1430,14 +1517,28 @@ void KioskWindow::onUpdateFailed(QString mac, QString reason) {
     // Phase2 유지
 }
 
-void KioskWindow::onDeviceListFetched(QStringList macs) {
-    // 서버 우선 동기화: 서버가 보유한 MAC 목록.
-    // /lists 는 MAC 만 반환하므로 이름/전화번호가 없는 항목은 로컬 캐시에 채울 수 없음.
-    // 대신 MAC 집합을 보관해 두고, 로컬 DB 에 없더라도 서버에 있으면 중복으로 판정한다.
+void KioskWindow::onDeviceListFetched(QVector<DeviceRecord> devices) {
+    // 서버 우선 동기화: 서버가 보유한 전체 디바이스 정보.
+    // 이제 /lists 가 이름/전화번호/종류까지 반환하므로,
+    // 중복 판정용 MAC 집합과 로컬 DB 캐시를 모두 채운다.
     serverMacs_.clear();
-    for (const QString& m : macs)
-        serverMacs_.insert(m.toUpper());
-    LOG(INFO) << "KioskWindow::onDeviceListFetched serverCount=" << macs.size();
+    for (const DeviceRecord& d : devices) {
+        serverMacs_.insert(d.mac.toUpper());
+
+        // 로컬 DB 에 없으면 서버 정보로 캐시 채우기 (addStation 은 충돌 시 무시됨)
+        Mac mac(d.mac.toUtf8().constData());
+        if (!db_->macExists(mac)) {
+            StationEntry se;
+            se.mac          = mac;
+            se.name         = d.name.toStdString();
+            se.phoneNum     = d.phone.toStdString();
+            se.type         = d.type;
+            se.registeredAt = d.registeredAt.toStdString();
+            se.updatedAt    = d.updatedAt.toStdString();
+            db_->addStation(se);
+        }
+    }
+    LOG(INFO) << "KioskWindow::onDeviceListFetched serverCount=" << devices.size();
 }
 
 void KioskWindow::onDeviceListFailed(QString reason) {
@@ -1468,7 +1569,6 @@ void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp)
         }
     } else if (serverMacs_.contains(macStr.toUpper())) {
         // 로컬 DB 에는 없지만 서버에는 등록된 MAC: 신규가 아니라 "이미 등록됨"으로 처리.
-        // /lists 는 이름/전화를 주지 않으므로 해당 칸은 비워서 안내한다.
         p1_->showDuplicateNotice(macStr, QString(), QString(), rssi, QString());
         LOG(INFO) << "KioskWindow::onCandidateFound duplicate(server) mac=" << macStr.toStdString();
         AudioPlayer::instance().play({":/audio/duplicate_notice.wav"});
@@ -1481,8 +1581,7 @@ void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp)
 
 void KioskWindow::onCaptureError(QString msg) {
     LOG(ERROR) << "KioskWindow::onCaptureError msg=" << msg.toStdString();
-    // 캡처 오류가 나도 프로그램을 종료하지 않는다. 상태표시줄에 에러 사유를 남기고
-    // '재시도' 버튼을 띄워, 무선랜 복구 후 운영자가 직접 캡처를 재개할 수 있게 한다.
+    // 상태표시줄에 에러 사유를 남기고 '재시도' 버튼을 띄워, 무선랜 복구 후 운영자가 직접 캡처를 재개할 수 있게 한다.
     scanStatusLabel_->setText("🔴 캡처 오류: " + msg);
     scanStatusLabel_->setStyleSheet(
         "QLabel { color: #B91C1C; font-size: 10pt; }");

@@ -3,7 +3,10 @@
 #include <QMainWindow>
 #include <QSet>
 #include <QString>
+#include <QVector>
 #include <QWidget>
+
+#include "api_client.h"   // DeviceRecord
 
 class QStackedWidget;
 class QTableWidget;
@@ -16,7 +19,6 @@ class QSoundEffect;
 class QSpinBox;
 class QCloseEvent;
 class Db;
-class ApiClient;
 
 // ────────── SettingsDialog ──────────
 class SettingsDialog : public QDialog {
@@ -154,6 +156,9 @@ private slots:
     void onDeleteSelected();
     void onEditSelected();
     void onBack();
+    // ── 서버(API) 목록 응답 처리: 관리자 테이블을 서버 데이터 우선으로 갱신 ──
+    void onServerListFetched(QVector<DeviceRecord> devices);
+    void onServerListFailed(QString reason);
 
 private:
     Db*           db_;
@@ -164,6 +169,10 @@ private:
     QPushButton*  deleteBtn_;
     QPushButton*  editBtn_;
     QPushButton*  backBtn_;
+
+    // 서버(API) /lists 스냅샷. 비어 있지 않고 serverDataReady_ 이면 테이블에 우선 표시한다.
+    QVector<DeviceRecord> serverDevices_;
+    bool                  serverDataReady_ = false;
 
     void reloadTable(const QString& keyword);
 };
@@ -189,7 +198,7 @@ public slots:
     void onRegisterFailed(QString mac, QString reason);
     void onUpdateSuccess(QString mac, QString updatedAt);
     void onUpdateFailed(QString mac, QString reason);
-    void onDeviceListFetched(QStringList macs);
+    void onDeviceListFetched(QVector<DeviceRecord> devices);
     void onDeviceListFailed(QString reason);
 
 protected:
