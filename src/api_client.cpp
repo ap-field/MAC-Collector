@@ -18,7 +18,7 @@ ApiClient::ApiClient(const QString& baseUrl, QObject* parent)
 // ── 시나리오 1: POST /v1/devices/register ──
 void ApiClient::registerDevice(const QString& mac,
                                const QString& name,
-                               const QString& phone,
+                               const QString& phoneNum,
                                int            deviceType,
                                int            rssi,
                                const QString& requestedAt)
@@ -26,7 +26,7 @@ void ApiClient::registerDevice(const QString& mac,
     QJsonObject body;
     body["mac_address"]  = mac;
     body["owner_name"]   = name;
-    body["phone_number"] = phone;
+    body["phone_number"] = phoneNum;
     body["device_type"]  = QString::number(deviceType);   // String: "1"=노트북, "2"=핸드폰,... "0"=기타
     body["rssi"]         = rssi;
     body["requested_at"] = requestedAt;
@@ -68,14 +68,14 @@ void ApiClient::registerDevice(const QString& mac,
 // ── 시나리오 3: POST /v1/devices/update ──
 void ApiClient::updateDevice(const QString& mac,
                              const QString& name,
-                             const QString& phone,
+                             const QString& phoneNum,
                              int            deviceType,
                              const QString& requestedAt)
 {
     QJsonObject body;
     body["mac_address"]  = mac;
     body["owner_name"]   = name;
-    body["phone_number"] = phone;
+    body["phone_number"] = phoneNum;
     body["device_type"]  = QString::number(deviceType);
     body["requested_at"] = requestedAt;
     // ※ rssi, vendor 는 변경 요청에 포함하지 않음 (프로토콜 명세)
@@ -146,10 +146,9 @@ void ApiClient::fetchDeviceList()
             DeviceRecord d;
             d.mac          = o["mac"].toString().toUpper();
             d.name         = o["name"].toString();
-            d.phone        = o["phone_num"].toString();
-            d.type         = o["device_type"].toString().toInt();
+            d.phoneNum        = o["phone_num"].toString();
+            d.deviceType         = o["device_type"].toString().toInt();
             d.registeredAt = o["request_at"].toString();
-            d.updatedAt    = o["updated_at"].toString();
             devices.push_back(d);
         }
         LOG(INFO) << "ApiClient::fetchDeviceList success count=" << devices.size();

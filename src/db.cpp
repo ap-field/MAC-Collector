@@ -3,8 +3,6 @@
 #include <glog/logging.h>
 #include <sqlite3.h>
 
-#include <cstring>
-
 namespace {
 std::string colText(sqlite3_stmt* stmt, int idx) {
     const unsigned char* p = sqlite3_column_text(stmt, idx);
@@ -79,7 +77,7 @@ bool Db::createSchema() {
         "  name          VARCHAR NOT NULL,"
         "  phoneNum      VARCHAR NOT NULL,"
         "  type          INTEGER DEFAULT 0,"
-        "  registered_at TEXT,"
+        "  registeredAt TEXT,"
         "  updated_at    TEXT"
         ");";
     return execSimple(ddl);
@@ -111,14 +109,14 @@ bool Db::addStation(const StationEntry& s) {
     std::lock_guard<std::mutex> lk(mu_);
     LOG(INFO) << "Db::addStation mac=" << s.mac.toString()
               << " name=" << s.name << " phone=" << s.phoneNum
-              << " type=" << s.type;
+              << " type=" << s.deviceType;
     if (db_ == nullptr) {
         LOG(WARNING) << "Db::addStation db not open";
         return false;
     }
 
     const char* sql =
-        "INSERT INTO station(mac, name, phoneNum, type, registered_at, updated_at) "
+        "INSERT INTO station(mac, name, phoneNum, type, registeredAt, updated_at) "
         "VALUES(?1, ?2, ?3, ?4, ?5, ?5) "
         "ON CONFLICT DO NOTHING;";
     sqlite3_stmt* stmt = nullptr;
@@ -131,7 +129,7 @@ bool Db::addStation(const StationEntry& s) {
     sqlite3_bind_text(stmt, 1, macStr.c_str(),         -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, s.name.c_str(),         -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, s.phoneNum.c_str(),     -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int (stmt, 4, s.type);
+    sqlite3_bind_int (stmt, 4, s.deviceType);
     sqlite3_bind_text(stmt, 5, s.registeredAt.c_str(), -1, SQLITE_TRANSIENT);
     bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
@@ -141,11 +139,11 @@ bool Db::addStation(const StationEntry& s) {
 
 bool Db::updateStation(const Mac& mac,
                        const std::string& name,
-                       const std::string& phone,
-                       int type) {
+                       const std::string& phoneNum,
+                       int deviceType) {
     std::lock_guard<std::mutex> lk(mu_);
     LOG(INFO) << "Db::updateStation mac=" << mac.toString()
-              << " name=" << name << " phone=" << phone << " type=" << type;
+              << " name=" << name << " phone=" << phoneNum << " type=" << deviceType;
     if (db_ == nullptr) {
         LOG(WARNING) << "Db::updateStation db not open";
         return false;
@@ -168,8 +166,8 @@ bool Db::updateStation(const Mac& mac,
     std::string macStr = mac.toString();
     sqlite3_bind_text(stmt, 1, macStr.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, name.c_str(),   -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, phone.c_str(),  -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int (stmt, 4, type);
+    sqlite3_bind_text(stmt, 3, phoneNum.c_str(),  -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int (stmt, 4, deviceType);
     bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
     LOG(INFO) << "Db::updateStation done mac=" << macStr << " ok=" << ok;
@@ -187,7 +185,7 @@ std::vector<StationEntry> Db::listStations() {
 
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_,
-                           "SELECT mac, name, phoneNum, type, registered_at, updated_at "
+                           "SELECT mac, name, phoneNum, deviceType, requestedAt"
                            "FROM station ORDER BY mac;",
                            -1, &stmt, nullptr) != SQLITE_OK) {
         LOG(ERROR) << "Db::listStations prepare failed: " << sqlite3_errmsg(db_);
@@ -199,7 +197,7 @@ std::vector<StationEntry> Db::listStations() {
         s.mac          = Mac(colText(stmt, 0).c_str());
         s.name         = colText(stmt, 1);
         s.phoneNum     = colText(stmt, 2);
-        s.type         = sqlite3_column_int(stmt, 3);
+        s.deviceType         = sqlite3_column_int(stmt, 3);
         s.registeredAt = colText(stmt, 4);
         s.updatedAt    = colText(stmt, 5);
         out.push_back(std::move(s));
@@ -219,7 +217,7 @@ std::vector<StationEntry> Db::searchStations(const std::string& keyword) {
     }
 
     const char* sql =
-        "SELECT mac, name, phoneNum, type, registered_at, updated_at "
+        "SELECT mac, name, phoneNum, type, registeredAt, updated_at "
         "FROM station "
         "WHERE mac LIKE ?1 OR name LIKE ?1 OR phoneNum LIKE ?1 ORDER BY mac;";
     sqlite3_stmt* stmt = nullptr;
@@ -236,7 +234,7 @@ std::vector<StationEntry> Db::searchStations(const std::string& keyword) {
         s.mac          = Mac(colText(stmt, 0).c_str());
         s.name         = colText(stmt, 1);
         s.phoneNum     = colText(stmt, 2);
-        s.type         = sqlite3_column_int(stmt, 3);
+        s.deviceType         = sqlite3_column_int(stmt, 3);
         s.registeredAt = colText(stmt, 4);
         s.updatedAt    = colText(stmt, 5);
         out.push_back(std::move(s));

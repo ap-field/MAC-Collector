@@ -10,7 +10,7 @@ struct StationEntry {
     Mac         mac;
     std::string name;
     std::string phoneNum;
-    int         type;          // 0=other 1=notebook 2=phone 3=tablet 4=iot
+    int         deviceType;          // 0=other 1=notebook 2=phone 3=tablet 4=iot
     std::string registeredAt;
     std::string updatedAt;
 };
@@ -34,7 +34,7 @@ public:
     bool addStation(const StationEntry& s);
     bool updateStation(const Mac& mac,
                        const std::string& name,
-                       const std::string& phone,
+                       const std::string& phoneNum,
                        int type);
 
     std::vector<StationEntry> listStations();

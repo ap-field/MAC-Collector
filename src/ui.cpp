@@ -833,7 +833,7 @@ void AdminPage::refresh() {
         LOG(INFO) << "AdminPage::refresh fetch server device list";
         api_->fetchDeviceList();
     }
-    // 응답 대기 중에도 현재 보유한(서버 우선) 데이터로 즉시 렌더한다.
+    // 응답 대기 중에도 현재 보유한(서버) 데이터로 즉시 렌더한다.
     reloadTable("");
 }
 
@@ -901,8 +901,8 @@ void AdminPage::reloadTable(const QString& keyword) {
             StationEntry se;
             se.mac          = Mac(d.mac.toUtf8().constData());
             se.name         = d.name.toStdString();
-            se.phoneNum     = d.phone.toStdString();
-            se.type         = d.type;
+            se.phoneNum     = d.phoneNum.toStdString();
+            se.deviceType   = d.deviceType;
             se.registeredAt = d.registeredAt.toStdString();
             serverMacs.insert(d.mac.toUpper().toStdString());
             if (matches(se)) list.push_back(se);
@@ -933,7 +933,7 @@ void AdminPage::reloadTable(const QString& keyword) {
         table_->setItem(row, 0, mkItem(QString::fromStdString(s.mac.toString())));
         table_->setItem(row, 1, mkItem(QString::fromStdString(s.name)));
         table_->setItem(row, 2, mkItem(QString::fromStdString(s.phoneNum)));
-        table_->setItem(row, 3, mkItem(QString::fromStdString(Db::typeCodeToString(s.type))));
+        table_->setItem(row, 3, mkItem(QString::fromStdString(Db::typeCodeToString(s.deviceType))));
         table_->setItem(row, 4, mkItem(fmtStationDate(s.registeredAt)));
     }
     table_->ensurePolished();
@@ -1048,8 +1048,8 @@ void AdminPage::onEditSelected() {
         for (DeviceRecord& d : serverDevices_) {
             if (d.mac.toUpper() == macUp) {
                 d.name  = newName;
-                d.phone = newPhone;
-                d.type  = typeCode;
+                d.phoneNum = newPhone;
+                d.deviceType  = typeCode;
                 break;
             }
         }
@@ -1342,17 +1342,17 @@ void KioskWindow::goPhase2Update(QString macStr) {
     pendingMac_   = macStr;
 
     auto stations = db_->searchStations(macStr.toStdString());
-    QString name, phone, deviceType;
+    QString name, phoneNum, deviceType;
     if (!stations.empty()) {
         name       = QString::fromStdString(stations[0].name);
-        phone      = QString::fromStdString(stations[0].phoneNum);
+        phoneNum   = QString::fromStdString(stations[0].phoneNum);
         deviceType = QString::fromStdString(
-            Db::typeCodeToString(stations[0].type));
+            Db::typeCodeToString(stations[0].deviceType));
     }
 
     p2_->setUpdateMode(true);
     p2_->setTargetMac(macStr);
-    p2_->prefill(name, phone, deviceType);
+    p2_->prefill(name, phoneNum, deviceType);
     p2_->focusFirstInput();
 
     AudioPlayer::instance().play({":/audio/update_guide.wav"});
@@ -1385,17 +1385,17 @@ void KioskWindow::goAdmin() {
 // 서버 우선: ApiClient 로 REST 전송 → 성공 응답 콜백에서 로컬 캐시 저장 + 화면 전환.
 // api_ 가 없으면(오프라인) 기존처럼 로컬 DB 에만 즉시 반영.
 void KioskWindow::onPhase2Confirmed(QString macStr, QString name,
-                                    QString phone, QString deviceType)
+                                    QString phoneNum, QString deviceType)
 {
     LOG(INFO) << "KioskWindow::onPhase2Confirmed mac=" << macStr.toStdString()
-              << " name=" << name.toStdString() << " phone=" << phone.toStdString()
+              << " name=" << name.toStdString() << " phone=" << phoneNum.toStdString()
               << " type=" << deviceType.toStdString()
               << " isUpdateMode=" << isUpdateMode_;
 
     // 비동기 응답 콜백에서 로컬 캐시에 반영하기 위해 입력값 보관
     pendingMac_   = macStr;
     pendingName_  = name;
-    pendingPhone_ = phone;
+    pendingPhone_ = phoneNum;
     pendingType_  = deviceType;
 
     int typeCode = Db::typeStringToCode(deviceType.toStdString());
@@ -1408,10 +1408,10 @@ void KioskWindow::onPhase2Confirmed(QString macStr, QString name,
         scanStatusLabel_->setText("⏳ 서버 전송 중...");
         if (isUpdateMode_) {
             LOG(INFO) << "onPhase2Confirmed -> ApiClient::updateDevice mac=" << macStr.toStdString();
-            api_->updateDevice(macStr, name, phone, typeCode, now);
+            api_->updateDevice(macStr, name, phoneNum, typeCode, now);
         } else {
             LOG(INFO) << "onPhase2Confirmed -> ApiClient::registerDevice mac=" << macStr.toStdString();
-            api_->registerDevice(macStr, name, phone, typeCode, pendingRssi_, now);
+            api_->registerDevice(macStr, name, phoneNum, typeCode, pendingRssi_, now);
         }
         return;  // 응답 대기
     }
@@ -1439,7 +1439,7 @@ void KioskWindow::commitConfirmed() {
         se.mac          = Mac(pendingMac_.toUtf8().constData());
         se.name         = pendingName_.toStdString();
         se.phoneNum     = pendingPhone_.toStdString();
-        se.type         = typeCode;
+        se.deviceType   = typeCode;
         se.registeredAt = now.toStdString();
         se.updatedAt    = now.toStdString();
         db_->addStation(se);
@@ -1531,8 +1531,8 @@ void KioskWindow::onDeviceListFetched(QVector<DeviceRecord> devices) {
             StationEntry se;
             se.mac          = mac;
             se.name         = d.name.toStdString();
-            se.phoneNum     = d.phone.toStdString();
-            se.type         = d.type;
+            se.phoneNum     = d.phoneNum.toStdString();
+            se.deviceType   = d.deviceType;
             se.registeredAt = d.registeredAt.toStdString();
             se.updatedAt    = d.updatedAt.toStdString();
             db_->addStation(se);

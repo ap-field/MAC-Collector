@@ -12,8 +12,8 @@ class QNetworkAccessManager;
 struct DeviceRecord {
     QString mac;            // 대문자 "AA:BB:CC:DD:EE:FF"
     QString name;
-    QString phone;
-    int     type = 0;       // 0=기타 1=노트북 2=핸드폰 3=태블릿 4=IoT
+    QString phoneNum;
+    int     deviceType = 0;       // 0=기타 1=노트북 2=핸드폰 3=태블릿 4=IoT
     QString registeredAt;   // "yyMMddTHHmmss"
     QString updatedAt;      // 없으면 빈 문자열
 };
@@ -26,7 +26,7 @@ public:
     // 시나리오 1 — 신규 등록
     void registerDevice(const QString& mac,
                         const QString& name,
-                        const QString& phone,
+                        const QString& phoneNum,
                         int            deviceType,   // 1=노트북 2=핸드폰 0=기타
                         int            rssi,
                         const QString& requestedAt); // "yyMMddTHHmmss"
@@ -34,7 +34,7 @@ public:
     // 시나리오 3 — 정보 변경
     void updateDevice(const QString& mac,
                       const QString& name,
-                      const QString& phone,
+                      const QString& phoneNum,
                       int            deviceType,
                       const QString& requestedAt);
 
