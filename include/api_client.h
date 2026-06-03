@@ -43,10 +43,11 @@ public:
 
 signals:
     void registerSuccess(QString mac);
-    void registerFailed(QString mac, QString reason);
+    // networkError=true 면 서버 연결 자체 실패(서버 다운). false 면 서버가 도달했으나 거절.
+    void registerFailed(QString mac, QString reason, bool networkError);
 
     void updateSuccess(QString mac, QString updatedAt);
-    void updateFailed(QString mac, QString reason);
+    void updateFailed(QString mac, QString reason, bool networkError);
 
     // 조회 성공: 등록된 디바이스 전체 정보 반환
     void deviceListFetched(QVector<DeviceRecord> devices);

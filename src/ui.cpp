@@ -903,7 +903,7 @@ void AdminPage::reloadTable(const QString& keyword) {
             se.name         = d.name.toStdString();
             se.phoneNum     = d.phoneNum.toStdString();
             se.deviceType   = d.deviceType;
-            se.registeredAt = d.registeredAt.toStdString();
+            se.registered_at = d.registeredAt.toStdString();
             serverMacs.insert(d.mac.toUpper().toStdString());
             if (matches(se)) list.push_back(se);
         }
@@ -934,7 +934,7 @@ void AdminPage::reloadTable(const QString& keyword) {
         table_->setItem(row, 1, mkItem(QString::fromStdString(s.name)));
         table_->setItem(row, 2, mkItem(QString::fromStdString(s.phoneNum)));
         table_->setItem(row, 3, mkItem(QString::fromStdString(Db::typeCodeToString(s.deviceType))));
-        table_->setItem(row, 4, mkItem(fmtStationDate(s.registeredAt)));
+        table_->setItem(row, 4, mkItem(fmtStationDate(s.registered_at)));
     }
     table_->ensurePolished();
     for (int i = 0; i < 4; ++i)
@@ -1146,6 +1146,14 @@ KioskWindow::KioskWindow(Db* db, ApiClient* api, QWidget* parent)
     connect(elapsedTimer_, &QTimer::timeout,
             this, &KioskWindow::updateElapsed);
     elapsedTimer_->start(1000);
+
+    // ── 오프라인 보류분 자동 재동기화: 서버 연동 시에만 30초 주기로 재전송 시도 ──
+    if (api_) {
+        syncTimer_ = new QTimer(this);
+        connect(syncTimer_, &QTimer::timeout,
+                this, &KioskWindow::trySyncPending);
+        syncTimer_->start(30000);
+    }
 
     goPhase1();
 }
@@ -1423,26 +1431,37 @@ void KioskWindow::onPhase2Confirmed(QString macStr, QString name,
 
 // pending* 멤버를 로컬 캐시(DB)에 반영하고 Phase1 행을 갱신한 뒤 Phase3 로 전환.
 // 서버 성공 응답 또는 오프라인 폴백에서 호출된다.
-void KioskWindow::commitConfirmed() {
+void KioskWindow::commitConfirmed(bool offline) {
     QString now  = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
     int typeCode = Db::typeStringToCode(pendingType_.toStdString());
     LOG(INFO) << "KioskWindow::commitConfirmed mac=" << pendingMac_.toStdString()
-              << " isUpdateMode=" << isUpdateMode_;
+              << " isUpdateMode=" << isUpdateMode_ << " offline=" << offline;
 
     if (isUpdateMode_) {
-        db_->updateStation(Mac(pendingMac_.toUtf8().constData()),
-                           pendingName_.toStdString(),
-                           pendingPhone_.toStdString(),
-                           typeCode);
+        // offline 이면 보류('update') 상태로, 아니면 일반 변경(동기화됨)으로 저장.
+        if (offline)
+            db_->updateStationPending(Mac(pendingMac_.toUtf8().constData()),
+                                      pendingName_.toStdString(),
+                                      pendingPhone_.toStdString(),
+                                      typeCode);
+        else
+            db_->updateStation(Mac(pendingMac_.toUtf8().constData()),
+                               pendingName_.toStdString(),
+                               pendingPhone_.toStdString(),
+                               typeCode);
     } else {
         StationEntry se;
         se.mac          = Mac(pendingMac_.toUtf8().constData());
         se.name         = pendingName_.toStdString();
         se.phoneNum     = pendingPhone_.toStdString();
         se.deviceType   = typeCode;
-        se.registeredAt = now.toStdString();
-        se.updatedAt    = now.toStdString();
-        db_->addStation(se);
+        se.registered_at = now.toStdString();
+        se.updated_at    = now.toStdString();
+        // offline 이면 보류('register') 상태로 저장 → 서버 복구 시 재전송.
+        if (offline)
+            db_->addStationPending(se, pendingRssi_);
+        else
+            db_->addStation(se);
     }
 
     // DB 저장 직후 Phase1 테이블 갱신:
@@ -1457,64 +1476,100 @@ void KioskWindow::commitConfirmed() {
             QString::fromStdString(s.name),
             QString::fromStdString(s.phoneNum),
             pendingRssi_,
-            QString::fromStdString(s.registeredAt));
+            QString::fromStdString(s.registered_at));
     }
 
-    scanStatusLabel_->setText("🟢 수집 중...");
+    // 오프라인 저장이면 서버 미반영 상태임을 알린다(복구 시 자동 재전송됨).
+    if (offline)
+        scanStatusLabel_->setText("🟠 네트워크 다운 — 로컬 저장됨(서버 복구 시 자동 전송)");
+    else
+        scanStatusLabel_->setText("🟢 수집 중...");
     goPhase3();
 }
 
 // ── ApiClient 응답 슬롯 ──
 void KioskWindow::onRegisterSuccess(QString mac) {
     LOG(INFO) << "KioskWindow::onRegisterSuccess mac=" << mac.toStdString();
-    if (!awaitingApiCommit_) {
-        // AdminPage 등 Phase2 외 경로의 응답: 해당 경로가 이미 DB 를 처리했으므로 무시.
-        LOG(INFO) << "onRegisterSuccess: not a Phase2 flow, skip commit";
+    // 라이브 등록이든 보류분 재전송이든, 서버가 이제 보유 → 보류 해제(idempotent).
+    db_->clearPending(Mac(mac.toUtf8().constData()));
+    // Phase2 라이브 응답은 mac 이 현재 진행 중인 pendingMac_ 과 일치할 때뿐이다.
+    // (재동기화로 동시에 떠 있는 다른 mac 의 응답이 Phase2 커밋을 가로채면 안 된다.)
+    if (!awaitingApiCommit_ || mac != pendingMac_) {
+        LOG(INFO) << "onRegisterSuccess: not the live Phase2 flow, pending cleared, skip commit";
         return;
     }
     awaitingApiCommit_ = false;
-    commitConfirmed();  // 서버 성공 → 로컬 캐시에 저장
+    commitConfirmed();  // 서버 성공 → 로컬 캐시에 저장(동기화됨)
 }
 
-void KioskWindow::onRegisterFailed(QString mac, QString reason) {
+void KioskWindow::onRegisterFailed(QString mac, QString reason, bool networkError) {
     LOG(ERROR) << "KioskWindow::onRegisterFailed mac=" << mac.toStdString()
-               << " reason=" << reason.toStdString();
-    if (!awaitingApiCommit_) {
-        LOG(INFO) << "onRegisterFailed: not a Phase2 flow, skip UI handling";
+               << " reason=" << reason.toStdString() << " networkError=" << networkError;
+    if (!awaitingApiCommit_ || mac != pendingMac_) {
+        // 보류분 재전송 실패. 네트워크 에러면 보류 유지(다음 주기에 재시도),
+        // 서버 거절이면 재시도해도 소용없으므로 보류 해제하여 무한 재전송을 막는다.
+        if (networkError) {
+            LOG(INFO) << "onRegisterFailed: sync retry network error, keep pending mac="
+                      << mac.toStdString();
+        } else {
+            LOG(WARNING) << "onRegisterFailed: server rejected pending register, clearing "
+                            "pending to stop retries mac=" << mac.toStdString();
+            db_->clearPending(Mac(mac.toUtf8().constData()));
+        }
         return;
     }
     awaitingApiCommit_ = false;
+    if (networkError) {
+        // 서버 다운 → 로컬에 보류 저장하고 정상 진행(데이터 유실 방지).
+        LOG(WARNING) << "onRegisterFailed: server down, saving offline mac=" << mac.toStdString();
+        commitConfirmed(/*offline=*/true);
+        return;
+    }
+    // 서버가 도달했으나 거절 → 기존처럼 실패 안내, Phase2 유지.
     scanStatusLabel_->setText("🟢 수집 중...");
     QMessageBox::warning(this, "등록 실패",
                          QString("서버 등록에 실패했습니다.\n%1").arg(reason));
-    // Phase2 유지 (화면 전환하지 않음)
 }
 
 void KioskWindow::onUpdateSuccess(QString mac, QString updatedAt) {
     LOG(INFO) << "KioskWindow::onUpdateSuccess mac=" << mac.toStdString()
               << " updatedAt=" << updatedAt.toStdString();
-    if (!awaitingApiCommit_) {
-        // AdminPage 수정 응답: onEditSelected 가 이미 db_->updateStation 으로 반영했으므로
-        // 여기서 commitConfirmed 를 타면 빈 pending* 으로 잘못된 행이 생긴다. 무시한다.
-        LOG(INFO) << "onUpdateSuccess: not a Phase2 flow (admin edit?), skip commit";
+    db_->clearPending(Mac(mac.toUtf8().constData()));
+    if (!awaitingApiCommit_ || mac != pendingMac_) {
+        // AdminPage 수정 / 재동기화 응답: DB 는 이미 반영됨. 보류 해제만 하고 종료.
+        // (여기서 commitConfirmed 를 타면 빈 pending* 으로 잘못된 행이 생긴다.)
+        LOG(INFO) << "onUpdateSuccess: not the live Phase2 flow, pending cleared, skip commit";
         return;
     }
     awaitingApiCommit_ = false;
-    commitConfirmed();  // 서버 성공 → 로컬 캐시에 반영
+    commitConfirmed();  // 서버 성공 → 로컬 캐시에 반영(동기화됨)
 }
 
-void KioskWindow::onUpdateFailed(QString mac, QString reason) {
+void KioskWindow::onUpdateFailed(QString mac, QString reason, bool networkError) {
     LOG(ERROR) << "KioskWindow::onUpdateFailed mac=" << mac.toStdString()
-               << " reason=" << reason.toStdString();
-    if (!awaitingApiCommit_) {
-        LOG(INFO) << "onUpdateFailed: not a Phase2 flow, skip UI handling";
+               << " reason=" << reason.toStdString() << " networkError=" << networkError;
+    if (!awaitingApiCommit_ || mac != pendingMac_) {
+        // 보류분 재전송 실패. 네트워크 에러면 보류 유지, 서버 거절이면 보류 해제.
+        if (networkError) {
+            LOG(INFO) << "onUpdateFailed: sync retry network error, keep pending mac="
+                      << mac.toStdString();
+        } else {
+            LOG(WARNING) << "onUpdateFailed: server rejected pending update, clearing "
+                            "pending to stop retries mac=" << mac.toStdString();
+            db_->clearPending(Mac(mac.toUtf8().constData()));
+        }
         return;
     }
     awaitingApiCommit_ = false;
+    if (networkError) {
+        // 서버 다운 → 로컬에 보류 저장하고 정상 진행.
+        LOG(WARNING) << "onUpdateFailed: server down, saving offline mac=" << mac.toStdString();
+        commitConfirmed(/*offline=*/true);
+        return;
+    }
     scanStatusLabel_->setText("🟢 수집 중...");
     QMessageBox::warning(this, "변경 실패",
                          QString("서버 변경에 실패했습니다.\n%1").arg(reason));
-    // Phase2 유지
 }
 
 void KioskWindow::onDeviceListFetched(QVector<DeviceRecord> devices) {
@@ -1533,16 +1588,43 @@ void KioskWindow::onDeviceListFetched(QVector<DeviceRecord> devices) {
             se.name         = d.name.toStdString();
             se.phoneNum     = d.phoneNum.toStdString();
             se.deviceType   = d.deviceType;
-            se.registeredAt = d.registeredAt.toStdString();
-            se.updatedAt    = d.updatedAt.toStdString();
+            se.registered_at = d.registeredAt.toStdString();
+            se.updated_at    = d.updatedAt.toStdString();
             db_->addStation(se);
         }
     }
     LOG(INFO) << "KioskWindow::onDeviceListFetched serverCount=" << devices.size();
+    // /lists 응답이 왔다 = 서버가 살아있다는 신호 → 밀린 보류분을 즉시 재전송 시도.
+    trySyncPending();
 }
 
 void KioskWindow::onDeviceListFailed(QString reason) {
     LOG(WARNING) << "KioskWindow::onDeviceListFailed reason=" << reason.toStdString();
+}
+
+// ── 서버 다운 중 쌓인 보류 항목을 서버에 재전송 ──
+// 응답은 onRegister/UpdateSuccess(보류 해제) 또는 onRegister/UpdateFailed(보류 유지)에서 처리.
+// awaitingApiCommit_ 을 건드리지 않으므로 Phase2 흐름과 섞이지 않는다.
+void KioskWindow::trySyncPending() {
+    if (!api_) return;
+    auto pending = db_->listPending();
+    if (pending.empty()) return;
+
+    LOG(INFO) << "KioskWindow::trySyncPending count=" << pending.size();
+    for (const StationEntry& s : pending) {
+        QString mac   = QString::fromStdString(s.mac.toString());
+        QString name  = QString::fromStdString(s.name);
+        QString phone = QString::fromStdString(s.phoneNum);
+        if (s.pendingOp == "register") {
+            LOG(INFO) << "trySyncPending -> registerDevice mac=" << s.mac.toString();
+            api_->registerDevice(mac, name, phone, s.deviceType, s.rssi,
+                                 QString::fromStdString(s.registered_at));
+        } else {
+            LOG(INFO) << "trySyncPending -> updateDevice mac=" << s.mac.toString();
+            api_->updateDevice(mac, name, phone, s.deviceType,
+                               QString::fromStdString(s.updated_at));
+        }
+    }
 }
 
 // ── 신규 MAC 감지: 로컬 DB 중복 확인 ──
@@ -1563,7 +1645,7 @@ void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp)
                 QString::fromStdString(s.name),
                 QString::fromStdString(s.phoneNum),
                 rssi,
-                QString::fromStdString(s.registeredAt));
+                QString::fromStdString(s.registered_at));
             LOG(INFO) << "KioskWindow::onCandidateFound duplicate(local) mac=" << macStr.toStdString();
             AudioPlayer::instance().play({":/audio/duplicate_notice.wav"});
         }

@@ -44,9 +44,10 @@ void ApiClient::registerDevice(const QString& mac,
     connect(reply, &QNetworkReply::finished, this, [this, reply, mac]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
+            // 연결 자체 실패(서버 다운/네트워크 단절) → networkError=true 로 알림.
             LOG(ERROR) << "ApiClient::registerDevice network error mac="
                        << mac.toStdString() << " err=" << reply->errorString().toStdString();
-            emit registerFailed(mac, reply->errorString());
+            emit registerFailed(mac, reply->errorString(), /*networkError=*/true);
             return;
         }
         QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();
@@ -57,10 +58,11 @@ void ApiClient::registerDevice(const QString& mac,
             LOG(INFO) << "ApiClient::registerDevice success mac=" << mac.toStdString();
             emit registerSuccess(mac);
         } else {
+            // 서버는 도달했으나 거절(중복 등) → networkError=false.
             LOG(WARNING) << "ApiClient::registerDevice failed mac=" << mac.toStdString()
                          << " code=" << resp["code"].toInt()
                          << " message=" << resp["message"].toString().toStdString();
-            emit registerFailed(mac, resp["message"].toString());
+            emit registerFailed(mac, resp["message"].toString(), /*networkError=*/false);
         }
     });
 }
@@ -93,9 +95,10 @@ void ApiClient::updateDevice(const QString& mac,
     connect(reply, &QNetworkReply::finished, this, [this, reply, mac]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
+            // 연결 자체 실패(서버 다운/네트워크 단절) → networkError=true 로 알림.
             LOG(ERROR) << "ApiClient::updateDevice network error mac="
                        << mac.toStdString() << " err=" << reply->errorString().toStdString();
-            emit updateFailed(mac, reply->errorString());
+            emit updateFailed(mac, reply->errorString(), /*networkError=*/true);
             return;
         }
         QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();
@@ -108,10 +111,11 @@ void ApiClient::updateDevice(const QString& mac,
                       << " updated_at=" << updAt.toStdString();
             emit updateSuccess(mac, updAt);
         } else {
+            // 서버는 도달했으나 거절 → networkError=false.
             LOG(WARNING) << "ApiClient::updateDevice failed mac=" << mac.toStdString()
                          << " code=" << resp["code"].toInt()
                          << " message=" << resp["message"].toString().toStdString();
-            emit updateFailed(mac, resp["message"].toString());
+            emit updateFailed(mac, resp["message"].toString(), /*networkError=*/false);
         }
     });
 }
@@ -146,8 +150,8 @@ void ApiClient::fetchDeviceList()
             DeviceRecord d;
             d.mac          = o["mac"].toString().toUpper();
             d.name         = o["name"].toString();
-            d.phoneNum        = o["phone_num"].toString();
-            d.deviceType         = o["device_type"].toString().toInt();
+            d.phoneNum     = o["phone_num"].toString();
+            d.deviceType   = o["device_type"].toString().toInt();
             d.registeredAt = o["request_at"].toString();
             devices.push_back(d);
         }

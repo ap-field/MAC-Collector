@@ -195,11 +195,14 @@ public slots:
 
     // ── ApiClient 응답 처리 ──
     void onRegisterSuccess(QString mac);
-    void onRegisterFailed(QString mac, QString reason);
+    void onRegisterFailed(QString mac, QString reason, bool networkError);
     void onUpdateSuccess(QString mac, QString updatedAt);
-    void onUpdateFailed(QString mac, QString reason);
+    void onUpdateFailed(QString mac, QString reason, bool networkError);
     void onDeviceListFetched(QVector<DeviceRecord> devices);
     void onDeviceListFailed(QString reason);
+
+    // 보류(오프라인 저장) 항목을 서버에 재전송. 타이머/서버복구 시 호출.
+    void trySyncPending();
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -223,8 +226,9 @@ private:
     void setActivePhase(int phase);
     void setChromeVisible(bool visible);
     void updatePhaseIndicator(int activeStep);
-    // pending* 멤버를 로컬 캐시(DB)에 반영하고 Phase1 행을 갱신한 뒤 Phase3로 전환
-    void commitConfirmed();
+    // pending* 멤버를 로컬 캐시(DB)에 반영하고 Phase1 행을 갱신한 뒤 Phase3로 전환.
+    // offline=true 면 서버 다운 폴백 — DB 에 보류 상태로 저장하고 상태표시를 다르게 한다.
+    void commitConfirmed(bool offline = false);
 
     Db*        db_;
     ApiClient* api_ = nullptr;
@@ -274,4 +278,7 @@ private:
 
     QTimer* elapsedTimer_   = nullptr;
     int     elapsedSeconds_ = 0;
+
+    // 서버 다운 중 쌓인 보류 항목을 주기적으로 재전송하는 타이머
+    QTimer* syncTimer_      = nullptr;
 };
