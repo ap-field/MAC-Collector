@@ -33,6 +33,8 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QFileInfo>
+#include <QInputDialog>
+#include <QCryptographicHash>
 #include <algorithm>
 #include <set>
 // ════════════════════════════════════════════════
@@ -42,6 +44,43 @@
 static QString settingsFilePath() {
     return QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
     + "/mac_collector_settings.json";
+}
+
+// ── 관리자 비밀번호(공유 PIN) 잠금용 헬퍼 ──
+// 평문이 아니라 SHA-256 해시만 설정 파일(adminPinHash)에 저장한다.
+static QString sha256Hex(const QString& s) {
+    return QString::fromLatin1(
+        QCryptographicHash::hash(s.toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+
+// 저장된 관리자 비밀번호 해시. 없으면 빈 문자열(=미설정).
+static QString readStoredPinHash() {
+    QFile f(settingsFilePath());
+    if (!f.open(QIODevice::ReadOnly)) return QString();
+    QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+    f.close();
+    return obj.value("adminPinHash").toString();
+}
+
+// adminPinHash 만 갱신하고 나머지 설정 키(iface/channel/...)는 보존하며 저장.
+static void writeStoredPinHash(const QString& hash) {
+    const QString path = settingsFilePath();
+    QJsonObject obj;
+    QFile rf(path);
+    if (rf.open(QIODevice::ReadOnly)) {
+        obj = QJsonDocument::fromJson(rf.readAll()).object();
+        rf.close();
+    }
+    obj["adminPinHash"] = hash;
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile wf(path);
+    if (wf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        wf.write(QJsonDocument(obj).toJson());
+        wf.close();
+        LOG(INFO) << "writeStoredPinHash saved admin pin hash";
+    } else {
+        LOG(ERROR) << "writeStoredPinHash failed to open " << path.toStdString();
+    }
 }
 
 SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent)
@@ -156,13 +195,21 @@ void SettingsDialog::loadSettings() {
 }
 
 void SettingsDialog::saveSettings() {
+    QString path = settingsFilePath();
+
+    // 기존 JSON 을 먼저 읽어 병합한다. 그러지 않으면 통째로 덮어써서
+    // adminPinHash(관리자 비밀번호 해시) 등 다른 키가 매 시작마다 지워진다.
     QJsonObject obj;
+    QFile rf(path);
+    if (rf.open(QIODevice::ReadOnly)) {
+        obj = QJsonDocument::fromJson(rf.readAll()).object();
+        rf.close();
+    }
     obj["iface"]   = ifaceCombo_->currentText().trimmed();
     obj["channel"] = channelEdit_->text().toInt();
     obj["rssi"]    = rssiEdit_->text().toInt();
     obj["dbPath"]  = dbEdit_->text().trimmed();
 
-    QString path = settingsFilePath();
     QDir().mkpath(QFileInfo(path).absolutePath());
     QFile f(path);
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -1415,6 +1462,45 @@ void KioskWindow::goPhase3() {
 
 void KioskWindow::goAdmin() {
     LOG(INFO) << "KioskWindow::goAdmin";
+
+    // ── 관리자 비밀번호 게이트 (기본 닫힘) ──
+    const QString stored = readStoredPinHash();
+    if (stored.isEmpty()) {
+        // 최초 설정: 비밀번호 등록(2회 입력 일치 확인).
+        bool ok = false;
+        const QString p1 = QInputDialog::getText(
+            this, "관리자 비밀번호 설정", "새 비밀번호를 입력하세요:",
+            QLineEdit::Password, "", &ok);
+        if (!ok) { LOG(INFO) << "goAdmin: pin setup canceled"; return; }
+        if (p1.isEmpty()) {
+            QMessageBox::warning(this, "설정 실패", "비밀번호가 비어 있습니다.");
+            return;
+        }
+        const QString p2 = QInputDialog::getText(
+            this, "관리자 비밀번호 설정", "비밀번호를 다시 입력하세요:",
+            QLineEdit::Password, "", &ok);
+        if (!ok) { LOG(INFO) << "goAdmin: pin confirm canceled"; return; }
+        if (p1 != p2) {
+            QMessageBox::warning(this, "설정 실패", "비밀번호가 일치하지 않습니다.");
+            return;
+        }
+        writeStoredPinHash(sha256Hex(p1));
+        LOG(INFO) << "goAdmin: admin pin set";
+    } else {
+        // 인증: 1회 입력 후 해시 비교.
+        bool ok = false;
+        const QString pin = QInputDialog::getText(
+            this, "관리자 인증", "비밀번호를 입력하세요:",
+            QLineEdit::Password, "", &ok);
+        if (!ok) { LOG(INFO) << "goAdmin: auth canceled"; return; }
+        if (sha256Hex(pin) != stored) {
+            LOG(WARNING) << "goAdmin: admin pin mismatch, access denied";
+            QMessageBox::warning(this, "인증 실패", "비밀번호가 올바르지 않습니다.");
+            return;
+        }
+        LOG(INFO) << "goAdmin: admin auth ok";
+    }
+
     admin_->refresh();
     admin_->focusSearch();
     stack_->setCurrentIndex(3);
