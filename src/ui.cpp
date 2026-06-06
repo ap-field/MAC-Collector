@@ -2,6 +2,7 @@
 #include "db.h"
 #include "mac.h"
 #include "api_client.h"
+#include "capture.h"
 
 #include <glog/logging.h>
 #include <QApplication>
@@ -893,18 +894,31 @@ void AdminPage::reloadTable(const QString& keyword) {
         return has(s.mac.toString()) || has(s.name) || has(s.phoneNum);
     };
 
+    // 로컬에서 삭제 보류('delete') 중인 MAC: 서버 스냅샷엔 아직 남아있어도
+    // 사용자가 지운 항목이므로 표시에서 제외한다. (서버 delete 동기화 완료 전까지)
+    std::set<std::string> pendingDeleteMacs;
+    for (const auto& p : db_->listPending()) {
+        if (p.pendingOp == "delete") {
+            std::string m = p.mac.toString();
+            std::transform(m.begin(), m.end(), m.begin(), ::toupper);
+            pendingDeleteMacs.insert(m);
+        }
+    }
+
     std::vector<StationEntry> list;
     if (serverDataReady_) {
         // ── API(서버) 데이터 우선 표시 ──
         std::set<std::string> serverMacs;
         for (const DeviceRecord& d : serverDevices_) {
+            const std::string macUp = d.mac.toUpper().toStdString();
+            serverMacs.insert(macUp);
+            if (pendingDeleteMacs.count(macUp)) continue;   // 삭제 보류 → 숨김
             StationEntry se;
             se.mac          = Mac(d.mac.toUtf8().constData());
             se.name         = d.name.toStdString();
             se.phoneNum     = d.phoneNum.toStdString();
             se.deviceType   = d.deviceType;
             se.registered_at = d.registeredAt.toStdString();
-            serverMacs.insert(d.mac.toUpper().toStdString());
             if (matches(se)) list.push_back(se);
         }
         // 서버에는 아직 없는 로컬 전용 레코드도 누락 없이 함께 표시한다.
@@ -957,7 +971,21 @@ void AdminPage::onDeleteSelected() {
         == QMessageBox::Yes)
     {
         LOG(INFO) << "AdminPage::onDeleteSelected confirmed mac=" << mac.toStdString();
-        db_->removeStation(Mac(mac.toUtf8().constData()));
+        const Mac macObj(mac.toUtf8().constData());
+        if (api_) {
+            // 시나리오 4 delete. 로컬은 즉시 '삭제 보류'로 숨기고(목록에서 사라짐)
+            // 서버에 DELETE 를 보낸다. 성공하면 KioskWindow::onDeleteSuccess 에서
+            // 실제로 행이 제거되고, 서버 다운이면 보류로 남아 자동 재전송된다.
+            db_->markStationPendingDelete(macObj);
+            LOG(INFO) << "AdminPage::onDeleteSelected -> ApiClient::deleteDevice mac="
+                      << mac.toStdString();
+            api_->deleteDevice(mac);
+        } else {
+            // 서버 미연동 모드: 로컬 DB 에서 즉시 완전 삭제.
+            LOG(WARNING) << "AdminPage::onDeleteSelected: no ApiClient, local DB only mac="
+                         << mac.toStdString();
+            db_->removeStation(macObj);
+        }
         // 서버 우선 표시 중이면 스냅샷에서도 제거해 삭제가 즉시 반영되도록 한다.
         const QString macUp = mac.toUpper();
         serverDevices_.erase(
@@ -1133,6 +1161,10 @@ KioskWindow::KioskWindow(Db* db, ApiClient* api, QWidget* parent)
                 this, &KioskWindow::onUpdateSuccess);
         connect(api_, &ApiClient::updateFailed,
                 this, &KioskWindow::onUpdateFailed);
+        connect(api_, &ApiClient::deleteSuccess,
+                this, &KioskWindow::onDeleteSuccess);
+        connect(api_, &ApiClient::deleteFailed,
+                this, &KioskWindow::onDeleteFailed);
         connect(api_, &ApiClient::deviceListFetched,
                 this, &KioskWindow::onDeviceListFetched);
         connect(api_, &ApiClient::deviceListFailed,
@@ -1572,6 +1604,42 @@ void KioskWindow::onUpdateFailed(QString mac, QString reason, bool networkError)
                          QString("서버 변경에 실패했습니다.\n%1").arg(reason));
 }
 
+// ── 시나리오 4: 삭제 응답 ──
+// 라이브 삭제든 보류('delete') 재전송이든 동일하게 처리한다. 삭제는 Phase2 흐름이
+// 없어 awaitingApiCommit_ 와 무관하므로 분기할 필요가 없다.
+void KioskWindow::onDeleteSuccess(QString mac) {
+    LOG(INFO) << "KioskWindow::onDeleteSuccess mac=" << mac.toStdString();
+    // 서버가 삭제를 확정 → 보류로 숨겨두었던 로컬 행을 실제로 제거한다(보류 해제 = 완전 삭제).
+    // 화면에선 이미 onDeleteSelected 에서 숨겨졌으므로 추가 갱신은 필요 없다.
+    db_->removeStation(Mac(mac.toUtf8().constData()));
+    // 서버에서도 사라졌으므로 중복 판정용 집합에서 제거한다. 그러지 않으면
+    // 같은 MAC 이 다시 감지될 때 "이미 등록됨(server)"으로 잘못 스킵된다.
+    serverMacs_.remove(mac.toUpper());
+    // 캡처 워커의 세션 중복 집합에서도 제거 → 같은 기기 재감지 시 다시 후보로 잡힌다.
+    if (capture_) capture_->forgetSeen(Mac(mac.toUtf8().constData()));
+}
+
+void KioskWindow::onDeleteFailed(QString mac, QString reason, bool networkError) {
+    LOG(ERROR) << "KioskWindow::onDeleteFailed mac=" << mac.toStdString()
+               << " reason=" << reason.toStdString() << " networkError=" << networkError;
+    if (networkError) {
+        // 서버 다운 → 'delete' 보류 유지. 다음 주기(trySyncPending)에 자동 재전송.
+        // 로컬에선 이미 숨겨져 있어 사용자 입장에선 삭제된 상태로 보인다.
+        LOG(INFO) << "onDeleteFailed: server down, keep pending delete mac="
+                  << mac.toStdString();
+    } else {
+        // 서버가 거절(이미 없는 MAC 등) → 서버에도 존재하지 않으므로 로컬도 완전 제거.
+        LOG(WARNING) << "onDeleteFailed: server rejected, removing locally mac="
+                     << mac.toStdString();
+        db_->removeStation(Mac(mac.toUtf8().constData()));
+        // 서버 거절은 보통 "이미 없는 MAC" → 서버에도 없으므로 집합에서 제거.
+        serverMacs_.remove(mac.toUpper());
+        if (capture_) capture_->forgetSeen(Mac(mac.toUtf8().constData()));
+    }
+    // networkError(서버 다운) 분기는 serverMacs_ 를 건드리지 않는다.
+    // 서버엔 아직 등록돼 있어, 동기화 전까지는 중복 판정을 유지하는 게 맞다.
+}
+
 void KioskWindow::onDeviceListFetched(QVector<DeviceRecord> devices) {
     // 서버 우선 동기화: 서버가 보유한 전체 디바이스 정보.
     // 이제 /lists 가 이름/전화번호/종류까지 반환하므로,
@@ -1619,6 +1687,9 @@ void KioskWindow::trySyncPending() {
             LOG(INFO) << "trySyncPending -> registerDevice mac=" << s.mac.toString();
             api_->registerDevice(mac, name, phone, s.deviceType, s.rssi,
                                  QString::fromStdString(s.registered_at));
+        } else if (s.pendingOp == "delete") {
+            LOG(INFO) << "trySyncPending -> deleteDevice mac=" << s.mac.toString();
+            api_->deleteDevice(mac);
         } else {
             LOG(INFO) << "trySyncPending -> updateDevice mac=" << s.mac.toString();
             api_->updateDevice(mac, name, phone, s.deviceType,

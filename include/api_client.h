@@ -41,6 +41,10 @@ public:
     // 시나리오 2 — 전체 MAC 목록 조회 (중복 확인용)
     void fetchDeviceList();
 
+    // 시나리오 4 — 삭제 (관리자 페이지에서 등록 기기 제거)
+    // DELETE /v1/devices/delete/{mac} — MAC 을 경로에 담아 보낸다(바디 없음).
+    void deleteDevice(const QString& mac);
+
 signals:
     void registerSuccess(QString mac);
     // networkError=true 면 서버 연결 자체 실패(서버 다운). false 면 서버가 도달했으나 거절.
@@ -48,6 +52,9 @@ signals:
 
     void updateSuccess(QString mac, QString updatedAt);
     void updateFailed(QString mac, QString reason, bool networkError);
+
+    void deleteSuccess(QString mac);
+    void deleteFailed(QString mac, QString reason, bool networkError);
 
     // 조회 성공: 등록된 디바이스 전체 정보 반환
     void deviceListFetched(QVector<DeviceRecord> devices);

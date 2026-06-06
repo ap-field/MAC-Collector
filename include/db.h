@@ -49,6 +49,10 @@ public:
                               const std::string& name,
                               const std::string& phoneNum,
                               int type);
+    // 삭제를 보류 상태("delete")로 표시. 행을 실제로 지우지 않고 플래그만 세워
+    // 목록/검색에서 숨긴다. 서버 재전송 성공 시 removeStation 으로 실제 제거된다.
+    // 아직 서버에 없던(register 보류) 행이면 서버에 알릴 것도 없으므로 바로 제거.
+    bool markStationPendingDelete(const Mac& mac);
     // 서버 재전송 성공 시 보류 해제.
     bool clearPending(const Mac& mac);
     // 서버에 아직 반영되지 않은(보류) 항목 전체. 재동기화 대상.

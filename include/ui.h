@@ -19,6 +19,7 @@ class QSoundEffect;
 class QSpinBox;
 class QCloseEvent;
 class Db;
+class CaptureWorker;
 
 // ────────── SettingsDialog ──────────
 class SettingsDialog : public QDialog {
@@ -183,6 +184,10 @@ class KioskWindow : public QMainWindow {
 public:
     explicit KioskWindow(Db* db, ApiClient* api = nullptr, QWidget* parent = nullptr);
 
+    // 캡처 워커 주입(워커가 윈도우보다 늦게 생성되므로 생성자 대신 세터).
+    // 삭제 확정 시 워커의 세션 중복 집합을 비워 재감지가 가능하게 한다.
+    void setCaptureWorker(CaptureWorker* worker) { capture_ = worker; }
+
 signals:
     // 사용자가 '재시도' 버튼을 눌렀을 때 emit → CaptureWorker::run() 재호출 트리거
     void captureRetryRequested();
@@ -198,6 +203,9 @@ public slots:
     void onRegisterFailed(QString mac, QString reason, bool networkError);
     void onUpdateSuccess(QString mac, QString updatedAt);
     void onUpdateFailed(QString mac, QString reason, bool networkError);
+    // 시나리오 4 — 삭제 응답. 보류('delete') 항목의 재동기화 응답도 여기로 들어온다.
+    void onDeleteSuccess(QString mac);
+    void onDeleteFailed(QString mac, QString reason, bool networkError);
     void onDeviceListFetched(QVector<DeviceRecord> devices);
     void onDeviceListFailed(QString reason);
 
@@ -230,8 +238,9 @@ private:
     // offline=true 면 서버 다운 폴백 — DB 에 보류 상태로 저장하고 상태표시를 다르게 한다.
     void commitConfirmed(bool offline = false);
 
-    Db*        db_;
-    ApiClient* api_ = nullptr;
+    Db*            db_;
+    ApiClient*     api_     = nullptr;
+    CaptureWorker* capture_ = nullptr;   // 삭제 시 세션 중복 집합 정리에 사용
 
     // 서버(/lists)가 보유한 MAC 집합. 로컬 DB 에는 없지만 서버엔 등록된 MAC 을
     // 중복 판단에 쓰기 위해 보관(대문자 정규화). /lists 는 이름/전화는 주지 않음.

@@ -80,7 +80,7 @@ bool Db::createSchema() {
         "  type          INTEGER DEFAULT 0,"
         "  registered_at TEXT,"
         "  updated_at    TEXT,"
-        // 오프라인 보류 상태: NULL=동기화됨, 'register'/'update'=서버 재전송 필요
+        // 오프라인 보류 상태: NULL=동기화됨, 'register'/'update'/'delete'=서버 재전송 필요
         "  pending_op    TEXT,"
         "  pending_rssi  INTEGER DEFAULT 0"
         ");";
@@ -281,6 +281,53 @@ bool Db::updateStationPending(const Mac& mac,
     return ok;
 }
 
+// ── 오프라인 폴백: 삭제를 보류('delete') 상태로 표시 ──
+// 행을 물리적으로 지우지 않고 플래그만 세워 목록/검색에서 숨긴다.
+// 단, 아직 서버에 등록조차 안 된(register 보류) 행은 서버에 알릴 게 없으므로 즉시 제거.
+bool Db::markStationPendingDelete(const Mac& mac) {
+    std::lock_guard<std::mutex> lk(mu_);
+    LOG(INFO) << "Db::markStationPendingDelete mac=" << mac.toString();
+    if (db_ == nullptr) {
+        LOG(WARNING) << "Db::markStationPendingDelete db not open";
+        return false;
+    }
+
+    std::string macStr = mac.toString();
+
+    // 1) register 보류(서버에 없던) 행이면 그냥 삭제한다.
+    {
+        const char* delSql =
+            "DELETE FROM station WHERE mac=?1 AND pending_op='register';";
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(db_, delSql, -1, &stmt, nullptr) != SQLITE_OK) {
+            LOG(ERROR) << "Db::markStationPendingDelete del prepare failed: "
+                       << sqlite3_errmsg(db_);
+            return false;
+        }
+        sqlite3_bind_text(stmt, 1, macStr.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        if (sqlite3_changes(db_) > 0) {
+            LOG(INFO) << "Db::markStationPendingDelete removed register-pending row mac="
+                      << macStr;
+            return true;
+        }
+    }
+
+    // 2) 그 외(동기화됨/update 보류) 행이면 'delete' 보류로 표시한다.
+    const char* sql = "UPDATE station SET pending_op='delete' WHERE mac=?1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        LOG(ERROR) << "Db::markStationPendingDelete prepare failed: " << sqlite3_errmsg(db_);
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, macStr.c_str(), -1, SQLITE_TRANSIENT);
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    LOG(INFO) << "Db::markStationPendingDelete done mac=" << macStr << " ok=" << ok;
+    return ok;
+}
+
 // ── 서버 재전송 성공 시 보류 해제 ──
 bool Db::clearPending(const Mac& mac) {
     std::lock_guard<std::mutex> lk(mu_);
@@ -348,9 +395,12 @@ std::vector<StationEntry> Db::listStations() {
     // 실제 컬럼명은 type/registered_at/updated_at 이며 6개 컬럼을 모두 읽는다.
     // (이전 SQL 은 없는 컬럼명 deviceType/requestedAt + 'requestedAtFROM' 공백 누락으로
     //  prepare 가 실패해 항상 빈 목록을 반환했다. searchStations 와 동일하게 맞춘다.)
+    // 삭제 보류('delete') 행은 사용자가 지운 항목이므로 목록에서 숨긴다.
     if (sqlite3_prepare_v2(db_,
                            "SELECT mac, name, phoneNum, type, registered_at, updated_at "
-                           "FROM station ORDER BY mac;",
+                           "FROM station "
+                           "WHERE pending_op IS NULL OR pending_op != 'delete' "
+                           "ORDER BY mac;",
                            -1, &stmt, nullptr) != SQLITE_OK) {
         LOG(ERROR) << "Db::listStations prepare failed: " << sqlite3_errmsg(db_);
         return out;
@@ -380,10 +430,12 @@ std::vector<StationEntry> Db::searchStations(const std::string& keyword) {
         return out;
     }
 
+    // 삭제 보류('delete') 행은 검색 결과에서도 숨긴다.
     const char* sql =
         "SELECT mac, name, phoneNum, type, registered_at, updated_at "
         "FROM station "
-        "WHERE mac LIKE ?1 OR name LIKE ?1 OR phoneNum LIKE ?1 ORDER BY mac;";
+        "WHERE (mac LIKE ?1 OR name LIKE ?1 OR phoneNum LIKE ?1) "
+        "AND (pending_op IS NULL OR pending_op != 'delete') ORDER BY mac;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         LOG(ERROR) << "Db::searchStations prepare failed: " << sqlite3_errmsg(db_);

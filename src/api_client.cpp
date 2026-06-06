@@ -120,6 +120,46 @@ void ApiClient::updateDevice(const QString& mac,
     });
 }
 
+// ── 시나리오 4: DELETE /v1/devices/delete/{mac} ──
+void ApiClient::deleteDevice(const QString& mac)
+{
+    // MAC 은 경로 세그먼트로 전달한다. ':' 등 특수문자를 안전하게 인코딩.
+    const QString encodedMac = QString::fromUtf8(
+        QUrl::toPercentEncoding(mac));
+    const QString url = baseUrl_ + "/v1/devices/delete/" + encodedMac;
+    LOG(INFO) << "ApiClient::deleteDevice DELETE " << url.toStdString()
+              << " mac=" << mac.toStdString();
+
+    QNetworkRequest req((QUrl(url)));
+
+    QNetworkReply* reply = nam_->deleteResource(req);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, mac]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            // 연결 자체 실패(서버 다운/네트워크 단절) → networkError=true 로 알림.
+            LOG(ERROR) << "ApiClient::deleteDevice network error mac="
+                       << mac.toStdString() << " err=" << reply->errorString().toStdString();
+            emit deleteFailed(mac, reply->errorString(), /*networkError=*/true);
+            return;
+        }
+        QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();
+        // 성공: code 200 (서버가 "...삭제되었습니다." 메시지를 함께 반환).
+        // register(200/"success")·update(201/"updated") 와 달리 status 필드가 없다.
+        if (resp["code"].toInt() == 200)
+        {
+            LOG(INFO) << "ApiClient::deleteDevice success mac=" << mac.toStdString();
+            emit deleteSuccess(mac);
+        } else {
+            // 서버는 도달했으나 거절(존재하지 않는 MAC 등) → networkError=false.
+            LOG(WARNING) << "ApiClient::deleteDevice failed mac=" << mac.toStdString()
+                         << " code=" << resp["code"].toInt()
+                         << " message=" << resp["message"].toString().toStdString();
+            emit deleteFailed(mac, resp["message"].toString(), /*networkError=*/false);
+        }
+    });
+}
+
 // ── 시나리오 2: GET /v1/devices/lists ──
 void ApiClient::fetchDeviceList()
 {

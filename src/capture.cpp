@@ -30,6 +30,12 @@ void CaptureWorker::requestStop() {
         pcap_breakloop(pcap_);  // pcap_ 으로 통일 // 수정
 }
 
+void CaptureWorker::forgetSeen(const Mac& mac) {
+    std::lock_guard<std::mutex> lk(seenMu_);
+    size_t n = seenInSession_.erase(mac);
+    LOG(INFO) << "CaptureWorker::forgetSeen mac=" << mac.toString() << " erased=" << n;
+}
+
 void CaptureWorker::run() {
     LOG(INFO)<< "run beg";
     char errbuf[PCAP_ERRBUF_SIZE] = {0};
@@ -140,13 +146,16 @@ void CaptureWorker::run() {
         Parser::Result r = parser_.parse(data, static_cast<int>(hdr->caplen));
         if (!r.ok) continue;
 
-        // 세션 내 중복 emit 방지
+        // 세션 내 중복 emit 방지. forgetSeen()(메인 스레드)과 동시 접근하므로 락으로 보호.
         QString macStr = QString::fromStdString(r.addr2.toString());
-        if (seenInSession_.find(r.addr2) != seenInSession_.end()) {
-            LOG(INFO) << "[CAPTURE] 중복 스킵: " << macStr.toStdString();
-            continue;
+        {
+            std::lock_guard<std::mutex> lk(seenMu_);
+            if (seenInSession_.find(r.addr2) != seenInSession_.end()) {
+                LOG(INFO) << "[CAPTURE] 중복 스킵: " << macStr.toStdString();
+                continue;
+            }
+            seenInSession_.insert(r.addr2);
         }
-        seenInSession_.insert(r.addr2);
 
         const char* kindName =
             (r.kind == Parser::FrameKind::Auth)  ? "auth" :

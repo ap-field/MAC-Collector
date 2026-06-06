@@ -96,6 +96,8 @@ int main(int argc, char** argv) {
     auto* worker = new CaptureWorker();
     worker->configure(iface, rssi, &db);
     worker->moveToThread(&thread);
+    // 삭제 확정 시 KioskWindow 가 워커의 세션 중복 집합을 비울 수 있도록 주입.
+    win.setCaptureWorker(worker);
     LOG(INFO) << "CaptureWorker configured and moved to thread";
 
     QObject::connect(&thread, &QThread::started,
