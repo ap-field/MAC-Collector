@@ -81,9 +81,20 @@ int main(int argc, char** argv) {
         return 3;
     }
 
+    // API 키는 코드에 박지 않고 실행 시 환경변수 MACCOLLECTOR_API_KEY 에서 읽는다
+    // (git 노출 방지). 키가 없으면 서버가 모든 요청을 401 로 거절하므로 즉시 종료한다.
+    const QString kApiKey = qEnvironmentVariable("MACCOLLECTOR_API_KEY");
+    if (kApiKey.isEmpty()) {
+        LOG(ERROR) << "MACCOLLECTOR_API_KEY is empty: x-api-key required, aborting";
+        QMessageBox::critical(nullptr, "설정 오류",
+                              "API 키(환경변수 MACCOLLECTOR_API_KEY)가 비어 있습니다.\n"
+                              "서버 인증에 필요하여 프로그램을 종료합니다.");
+        return 4;
+    }
+
     // 스택에 생성해 main 종료 시 자동 소멸 → 수동 new/delete 불필요(메모리 누수 방지).
     // db 와 동일한 방식. win 이 api 보다 먼저 소멸하므로 dangling 위험 없음.
-    ApiClient api(kApiBaseUrl);
+    ApiClient api(kApiBaseUrl, kApiKey);
     LOG(INFO) << "ApiClient created baseUrl=" << kApiBaseUrl.toStdString();
     // 서버 우선: 시작 시 등록된 MAC 목록을 1회 동기화
     api.fetchDeviceList();

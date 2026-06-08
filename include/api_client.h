@@ -21,7 +21,9 @@ struct DeviceRecord {
 class ApiClient : public QObject {
     Q_OBJECT
 public:
-    explicit ApiClient(const QString& baseUrl, QObject* parent = nullptr);
+    explicit ApiClient(const QString& baseUrl,
+                       const QString& apiKey,
+                       QObject* parent = nullptr);
 
     // 시나리오 1 — 신규 등록
     void registerDevice(const QString& mac,
@@ -63,4 +65,5 @@ signals:
 private:
     QNetworkAccessManager* nam_;
     QString                baseUrl_;
+    QString                apiKey_;   // 모든 요청의 x-api-key 헤더 값(서버 인증)
 };

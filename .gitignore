@@ -7,4 +7,5 @@ bin/
 .qtcreator/
 CMakeFiles/
 CMakeCache.txt
-run.shMAC_address.db
+MAC_address.db
+.env

@@ -9,10 +9,11 @@
 #include <QJsonArray>
 #include <QUrl>
 
-ApiClient::ApiClient(const QString& baseUrl, QObject* parent)
+ApiClient::ApiClient(const QString& baseUrl, const QString& apiKey, QObject* parent)
     : QObject(parent),
     nam_(new QNetworkAccessManager(this)),
-    baseUrl_(baseUrl)
+    baseUrl_(baseUrl),
+    apiKey_(apiKey)
 {}
 
 // ── 시나리오 1: POST /v1/devices/register ──
@@ -38,6 +39,7 @@ void ApiClient::registerDevice(const QString& mac,
 
     QNetworkRequest req((QUrl(url)));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");//before post, after reuqest
+    req.setRawHeader("x-api-key", apiKey_.toUtf8());   // 서버 인증 헤더
 
     QNetworkReply* reply = nam_->post(req, QJsonDocument(body).toJson());
 
@@ -89,6 +91,7 @@ void ApiClient::updateDevice(const QString& mac,
 
     QNetworkRequest req((QUrl(url)));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    req.setRawHeader("x-api-key", apiKey_.toUtf8());   // 서버 인증 헤더
 
     QNetworkReply* reply = nam_->post(req, QJsonDocument(body).toJson());
 
@@ -131,6 +134,7 @@ void ApiClient::deleteDevice(const QString& mac)
               << " mac=" << mac.toStdString();
 
     QNetworkRequest req((QUrl(url)));
+    req.setRawHeader("x-api-key", apiKey_.toUtf8());   // 서버 인증 헤더
 
     QNetworkReply* reply = nam_->deleteResource(req);
 
@@ -167,6 +171,7 @@ void ApiClient::fetchDeviceList()
     LOG(INFO) << "ApiClient::fetchDeviceList GET " << url.toStdString();
 
     QNetworkRequest req((QUrl(url)));
+    req.setRawHeader("x-api-key", apiKey_.toUtf8());   // 서버 인증 헤더
 
     QNetworkReply* reply = nam_->get(req);
 
