@@ -35,6 +35,9 @@
 #include <QFileInfo>
 #include <QInputDialog>
 #include <QCryptographicHash>
+#include <QJsonArray>
+#include <QListWidget>
+#include <QTabWidget>
 #include <algorithm>
 #include <set>
 // ════════════════════════════════════════════════
@@ -132,11 +135,50 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent)
         "QComboBox:focus { border: 2px solid #2563EB; }");
     form->addRow(mkLabel("네트워크 인터페이스:"), ifaceCombo_);
 
-    // 채널 — QLineEdit + 숫자 전용
-    channelEdit_ = mkLineEdit("0 (변경 안함)");
-    channelEdit_->setValidator(new QIntValidator(0, 14, this));
-    channelEdit_->setText("0");
-    form->addRow(mkLabel("채널 번호 (0=변경 안함, 1-14):"), channelEdit_);
+    // 채널 목록 — 추가/삭제 가능한 리스트
+    auto* channelGroup = new QWidget();
+    auto* channelVL = new QVBoxLayout(channelGroup);
+    channelVL->setContentsMargins(0, 0, 0, 0);
+    channelVL->setSpacing(4);
+
+    auto* chAddRow = new QHBoxLayout();
+    chAddRow->setSpacing(6);
+    channelAddEdit_ = mkLineEdit("1-14");
+    channelAddEdit_->setValidator(new QIntValidator(1, 14, this));
+    channelAddEdit_->setMaximumWidth(70);
+    channelAddBtn_ = new QPushButton("추가");
+    channelAddBtn_->setMinimumHeight(34);
+    channelAddBtn_->setStyleSheet(
+        "QPushButton { background: #2563EB; color: white; border: none;"
+        "  border-radius: 6px; padding: 4px 12px; font-size: 9pt; }"
+        "QPushButton:hover { background: #1D4ED8; }");
+    chAddRow->addWidget(channelAddEdit_);
+    chAddRow->addWidget(channelAddBtn_);
+    chAddRow->addStretch(1);
+    channelVL->addLayout(chAddRow);
+
+    channelList_ = new QListWidget();
+    channelList_->setFixedHeight(80);
+    channelList_->setStyleSheet(
+        "QListWidget { border: 1.5px solid #D1D5DB; border-radius: 6px;"
+        "  font-size: 10pt; }"
+        "QListWidget::item:selected { background: #DBEAFE; color: #1D4ED8; }");
+    channelVL->addWidget(channelList_);
+
+    channelRemoveBtn_ = new QPushButton("선택 삭제");
+    channelRemoveBtn_->setMinimumHeight(30);
+    channelRemoveBtn_->setStyleSheet(
+        "QPushButton { background: #F3F4F6; color: #374151;"
+        "  border: 1px solid #D1D5DB; border-radius: 6px;"
+        "  font-size: 9pt; }"
+        "QPushButton:hover { background: #E5E7EB; }");
+    channelVL->addWidget(channelRemoveBtn_);
+
+    form->addRow(mkLabel("채널 목록 (1-14):"), channelGroup);
+
+    connect(channelAddBtn_,    &QPushButton::clicked, this, &SettingsDialog::onAddChannel);
+    connect(channelRemoveBtn_, &QPushButton::clicked, this, &SettingsDialog::onRemoveChannel);
+    connect(channelAddEdit_,   &QLineEdit::returnPressed, this, &SettingsDialog::onAddChannel);
 
     // RSSI — QLineEdit + 숫자 전용
     rssiEdit_ = mkLineEdit("-20");
@@ -186,8 +228,21 @@ void SettingsDialog::loadSettings() {
 
     if (obj.contains("iface"))
         ifaceCombo_->setCurrentText(obj["iface"].toString());
-    if (obj.contains("channel"))
-        channelEdit_->setText(QString::number(obj["channel"].toInt()));
+    if (obj.contains("channels") && obj["channels"].isArray()) {
+        channelList_->clear();
+        for (const auto& v : obj["channels"].toArray()) {
+            int ch = v.toInt();
+            if (ch >= 1 && ch <= 14)
+                channelList_->addItem(QString::number(ch));
+        }
+    } else if (obj.contains("channel")) {
+        // 구버전 단일 채널 → 리스트로 변환
+        int ch = obj["channel"].toInt();
+        if (ch >= 1 && ch <= 14) {
+            channelList_->clear();
+            channelList_->addItem(QString::number(ch));
+        }
+    }
     if (obj.contains("rssi"))
         rssiEdit_->setText(QString::number(obj["rssi"].toInt()));
     if (obj.contains("dbPath"))
@@ -206,7 +261,11 @@ void SettingsDialog::saveSettings() {
         rf.close();
     }
     obj["iface"]   = ifaceCombo_->currentText().trimmed();
-    obj["channel"] = channelEdit_->text().toInt();
+    QJsonArray chArr;
+    for (int i = 0; i < channelList_->count(); ++i)
+        chArr.append(channelList_->item(i)->text().toInt());
+    obj["channels"] = chArr;
+    obj.remove("channel");  // 구버전 키 제거
     obj["rssi"]    = rssiEdit_->text().toInt();
     obj["dbPath"]  = dbEdit_->text().trimmed();
 
@@ -228,12 +287,6 @@ void SettingsDialog::onOk() {
         QMessageBox::warning(this, "입력 오류", "네트워크 인터페이스를 입력하세요.");
         return;
     }
-    int ch = channelEdit_->text().toInt();
-    if (ch < 0 || ch > 14) {
-        LOG(WARNING) << "SettingsDialog::onOk validation failed: channel=" << ch;
-        QMessageBox::warning(this, "입력 오류", "채널 번호는 0∼14 사이여야 합니다.");
-        return;
-    }
     int rssi = rssiEdit_->text().toInt();
     if (rssi < -100 || rssi > -20) {
         LOG(WARNING) << "SettingsDialog::onOk validation failed: rssi=" << rssi;
@@ -242,15 +295,34 @@ void SettingsDialog::onOk() {
     }
     LOG(INFO) << "SettingsDialog::onOk accepted iface="
               << ifaceCombo_->currentText().trimmed().toStdString()
-              << " channel=" << ch << " rssi=" << rssi;
+              << " channels=" << channelList_->count() << " rssi=" << rssi;
     saveSettings();
     accept();
 }
 
 QString SettingsDialog::iface()         const { return ifaceCombo_->currentText().trimmed(); }
-int     SettingsDialog::channel()       const { return channelEdit_->text().toInt(); }
+QVector<int> SettingsDialog::channel()       const {
+    QVector<int> result;
+    for (int i = 0; i < channelList_->count(); ++i)
+        result.append(channelList_->item(i)->text().toInt());
+    return result;
+}
 int     SettingsDialog::rssiThreshold() const { return rssiEdit_->text().toInt(); }
 QString SettingsDialog::dbPath()        const { return dbEdit_->text().trimmed(); }
+
+void SettingsDialog::onAddChannel() {
+    int ch = channelAddEdit_->text().toInt();
+    if (ch < 1 || ch > 14) return;
+    for (int i = 0; i < channelList_->count(); ++i)
+        if (channelList_->item(i)->text().toInt() == ch) return;
+    channelList_->addItem(QString::number(ch));
+    channelAddEdit_->clear();
+}
+
+void SettingsDialog::onRemoveChannel() {
+    for (auto* item : channelList_->selectedItems())
+        delete item;
+}
 
 // ════════════════════════════════════════════════
 //  AudioPlayer

@@ -16,9 +16,10 @@ CaptureWorker::~CaptureWorker() {
     LOG(INFO)<<"~CaptureWorker";
 }
 
-void CaptureWorker::configure(const QString& iface, int rssiThreshold, Db* db) {
+void CaptureWorker::configure(const QString& iface, int rssiThreshold, const QVector<int>& channels, Db* db) {
     iface_ = iface;
     parser_.setRssiThreshold(rssiThreshold);
+    (void)channels;
     db_ = db;
 }
 
@@ -65,6 +66,7 @@ void CaptureWorker::run() {
 
     struct bpf_program fp;
     const char* filter =
+        "(type mgt subtype beacon) or "
         "(type mgt subtype auth) or "
         "(type mgt subtype assoc-req) or "
         "(type mgt subtype reassoc-req)";
@@ -141,6 +143,18 @@ void CaptureWorker::run() {
             emit errorOccurred(
                 QString("패킷 캡처 오류(인터페이스 상실 가능): %1").arg(pcap_geterr(pcap_)));
             break;
+        }
+
+        // beacon 먼저 시도 — BSSID/SSID/채널을 AP 테이블에 넘긴다
+        {
+            Parser::BeaconInfo bi = parser_.parseBeacon(data, static_cast<int>(hdr->caplen));
+            if (bi.ok) {
+                emit beaconFound(
+                    QString::fromStdString(bi.bssid.toString()),
+                    QString::fromStdString(bi.ssid),
+                    bi.channel);
+                continue;
+            }
         }
 
         Parser::Result r = parser_.parse(data, static_cast<int>(hdr->caplen));

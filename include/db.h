@@ -17,6 +17,14 @@ struct StationEntry {
     // "" = 동기화됨, "register" = 신규등록 재전송 필요, "update" = 변경 재전송 필요.
     std::string pendingOp;
     int         rssi = 0;            // pending register 재전송 시 사용
+    std::string apBssid;
+};
+
+struct ApEntry {
+    std::string bssid;
+    int type = 0; // 0=CA, 1=EA
+    std::string ssid;
+    int ch = 0;
 };
 
 struct sqlite3;
@@ -63,13 +71,19 @@ public:
 
     bool removeStation(const Mac& mac);
 
+    bool addAp(const ApEntry& ap);
+    bool removeAp(const std::string& bssid);
+    bool updateApType(const std::string& bssid, int type);
+    bool apExists(const std::string& bssid);
+    std::vector<ApEntry> listAps();
+
     static int         typeStringToCode(const std::string& s);
     static std::string typeCodeToString(int code);
 
 private:
     bool execSimple(const char* sql);
     bool createSchema();
-    // 구버전 DB 에 pending_op / pending_rssi 컬럼이 없으면 추가(마이그레이션).
+    // 구버전 DB 에 pending_op / pending_rssi / bssid 컬럼이 없으면 추가(마이그레이션).
     void migrateSchema();
     bool columnExists(const char* table, const char* col);
 

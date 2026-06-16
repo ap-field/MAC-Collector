@@ -7,6 +7,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVector>
 
 #include "mac.h"
 #include "parser.h"
@@ -23,7 +24,7 @@ public:
     ~CaptureWorker() override;
 
 
-    void configure(const QString& iface, int rssiThreshold, Db* db);
+    void configure(const QString& iface, int rssiThreshold, const QVector<int>& channels, Db* db);
     void requestStop();
 
     // 세션 중복 집합에서 해당 MAC 을 제거해 다시 후보로 잡히게 한다.
@@ -42,6 +43,7 @@ signals:
     // 최초 시작과 재시도 성공을 UI 가 동일하게 처리(🟢 수집 중)하도록 알린다.
     void captureStarted();
     void finished();
+    void beaconFound(QString bssid, QString ssid, int channel);
 
 private:
     QString           iface_;

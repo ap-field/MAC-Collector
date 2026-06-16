@@ -1,8 +1,10 @@
 #pragma once
 #include <QDialog>
+#include <QListWidget>
 #include <QMainWindow>
 #include <QSet>
 #include <QString>
+#include <QTabWidget>
 #include <QVector>
 #include <QWidget>
 
@@ -28,19 +30,24 @@ public:
     explicit SettingsDialog(QWidget* parent = nullptr);
 
     QString iface()         const;
-    int     channel()       const;
+    QVector<int> channel()       const;
     int     rssiThreshold() const;
     QString dbPath()        const;
 
 private slots:
     void onOk();
+    void onAddChannel();
+    void onRemoveChannel();
 
 private:
     void loadSettings();
     void saveSettings();
 
     QComboBox* ifaceCombo_;
-    QLineEdit* channelEdit_;
+    QListWidget* channelList_;
+    QLineEdit*   channelAddEdit_;
+    QPushButton* channelAddBtn_;
+    QPushButton* channelRemoveBtn_;
     QLineEdit* rssiEdit_;
     QLineEdit* dbEdit_;
 };
@@ -147,6 +154,7 @@ class AdminPage : public QWidget {
 public:
     explicit AdminPage(Db* db, ApiClient* api = nullptr, QWidget* parent = nullptr);
     void refresh();
+    void refreshAps();
     void focusSearch();
 
 signals:
@@ -157,6 +165,8 @@ private slots:
     void onDeleteSelected();
     void onEditSelected();
     void onBack();
+    void onChangeApType();
+    void onRemoveAp();
     // ── 서버(API) 목록 응답 처리: 관리자 테이블을 서버 데이터 우선으로 갱신 ──
     void onServerListFetched(QVector<DeviceRecord> devices);
     void onServerListFailed(QString reason);
@@ -170,6 +180,10 @@ private:
     QPushButton*  deleteBtn_;
     QPushButton*  editBtn_;
     QPushButton*  backBtn_;
+
+    QTableWidget* apTable_      = nullptr;
+    QPushButton*  changeTypeBtn_ = nullptr;
+    QPushButton*  removeApBtn_   = nullptr;
 
     // 서버(API) /lists 스냅샷. 비어 있지 않고 serverDataReady_ 이면 테이블에 우선 표시한다.
     QVector<DeviceRecord> serverDevices_;
@@ -194,6 +208,7 @@ signals:
 
 public slots:
     void onCandidateFound(QString macStr, int rssi, QString timestamp);
+    void onBeaconFound(QString bssid, QString ssid, int channel);
     void onCaptureError(QString msg);
     // 캡처(최초/재시도)가 성공적으로 시작됐을 때 → 🟢 수집 중 복귀, 재시도 버튼 숨김
     void onCaptureStarted();

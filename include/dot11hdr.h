@@ -23,6 +23,7 @@ constexpr uint8_t TYPE_DATA = 2;
 constexpr uint8_t SUBTYPE_PROBE_REQ   = 0x04;
 constexpr uint8_t SUBTYPE_ASSOC_REQ   = 0x00;
 constexpr uint8_t SUBTYPE_REASSOC_REQ = 0x02;
+constexpr uint8_t SUBTYPE_BEACON      = 0x08;
 constexpr uint8_t SUBTYPE_AUTH        = 0x0B;
 
 // LLC/SNAP EtherType for EAPOL (802.1X)

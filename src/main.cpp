@@ -37,27 +37,27 @@ int main(int argc, char** argv) {
     }
 
     const QString iface   = settingsDlg.iface();
-    const int     channel = settingsDlg.channel();
+    const QVector<int> channels = settingsDlg.channel();
     const int     rssi    = settingsDlg.rssiThreshold();
     const QString dbPath  = settingsDlg.dbPath();
     LOG(INFO) << "settings accepted iface=" << iface.toStdString()
-              << " channel=" << channel << " rssi=" << rssi
+              << " channels=" << channels.size() << " rssi=" << rssi
               << " dbPath=" << dbPath.toStdString();
 
-    if (channel > 0) {
-        LOG(INFO) << "setting channel via iwconfig iface=" << iface.toStdString()
-                  << " channel=" << channel;
+    if (!channels.isEmpty()) {
+        const int ch = channels.first();
+        LOG(INFO) << "setting initial channel via iwconfig iface=" << iface.toStdString()
+                  << " channel=" << ch;
         QProcess proc;
-        // cap_net_admin은 exec 자식 프로세스에 상속되지 않으므로 sudo -n 사용
-        // (setup.sh가 sudoers NOPASSWD 규칙을 추가하므로 비밀번호 불필요)
-        proc.start("sudo", {"-n", "iwconfig", iface, "channel", QString::number(channel)});
+
+        proc.start("sudo", {"-n", "iwconfig", iface, "channel", QString::number(ch)});
         if (!proc.waitForFinished(3000)) {
             LOG(ERROR) << "iwconfig channel set failed iface=" << iface.toStdString()
-                       << " channel=" << channel;
+                       << " channel=" << ch;
             QMessageBox::warning(nullptr, "채널 설정 실패",
                                  QString("iwconfig %1 channel %2 실패\n"
                                          "모니터 모드 및 권한을 확인하세요.")
-                                     .arg(iface).arg(channel));
+                                     .arg(iface).arg(ch));
         }
     }
 
@@ -105,7 +105,7 @@ int main(int argc, char** argv) {
 
     QThread   thread;
     auto* worker = new CaptureWorker();
-    worker->configure(iface, rssi, &db);
+    worker->configure(iface, rssi, channels, &db);
     worker->moveToThread(&thread);
     // 삭제 확정 시 KioskWindow 가 워커의 세션 중복 집합을 비울 수 있도록 주입.
     win.setCaptureWorker(worker);

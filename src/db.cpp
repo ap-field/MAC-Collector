@@ -72,7 +72,7 @@ bool Db::execSimple(const char* sql) {
 
 bool Db::createSchema() {
     LOG(INFO) << "Db::createSchema";
-    const char* ddl =
+    const char* stationDdl =
         "CREATE TABLE IF NOT EXISTS station ("
         "  mac           VARCHAR NOT NULL PRIMARY KEY,"
         "  name          VARCHAR NOT NULL,"
@@ -84,8 +84,19 @@ bool Db::createSchema() {
         "  pending_op    TEXT,"
         "  pending_rssi  INTEGER DEFAULT 0"
         ");";
-    return execSimple(ddl);
+
+    const char* apDdl =
+        "CREATE TABLE IF NOT EXISTS ap ("
+        "  bssid    TEXT    NOT NULL PRIMARY KEY,"
+        "  type     INTEGER DEFAULT 0,"
+        "  ssid     TEXT    NOT NULL,"
+        "  ch       INTEGER DEFAULT 0"
+        ");";
+
+        return execSimple(stationDdl) && execSimple(apDdl);
 }
+
+
 
 bool Db::columnExists(const char* table, const char* col) {
     if (db_ == nullptr) return false;
@@ -499,4 +510,116 @@ std::string Db::typeCodeToString(int code) {
     case 4:  return "iot";
     default: return "other";
     }
+}
+
+bool Db::addAp(const ApEntry& ap) {
+    std::lock_guard<std::mutex> lk(mu_);
+    LOG(INFO) << "Db::addAp bssid=" << ap.bssid << " type=" << ap.type
+              << " ssid=" << ap.ssid << " ch=" << ap.ch;
+    if (db_ == nullptr) {
+        LOG(WARNING) << "Db::addAp db not open";
+        return false;
+    }
+    const char* sql =
+        "INSERT INTO ap(bssid, type, ssid, ch) VALUES(?1,?2,?3,?4) "
+        "ON CONFLICT(bssid) DO NOTHING;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        LOG(ERROR) << "Db::addAp prepare failed: " << sqlite3_errmsg(db_);
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, ap.bssid.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int (stmt, 2, ap.type);
+    sqlite3_bind_text(stmt, 3, ap.ssid.c_str(),  -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int (stmt, 4, ap.ch);
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    LOG(INFO) << "Db::addAp done bssid=" << ap.bssid << " ok=" << ok;
+    return ok;
+}
+
+bool Db::removeAp(const std::string& bssid) {
+    std::lock_guard<std::mutex> lk(mu_);
+    LOG(INFO) << "Db::removeAp bssid=" << bssid;
+    if (db_ == nullptr) {
+        LOG(WARNING) << "Db::removeAp db not open";
+        return false;
+    }
+    const char* sql = "DELETE FROM ap WHERE bssid=?1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        LOG(ERROR) << "Db::removeAp prepare failed: " << sqlite3_errmsg(db_);
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, bssid.c_str(), -1, SQLITE_TRANSIENT);
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    LOG(INFO) << "Db::removeAp done bssid=" << bssid << " ok=" << ok;
+    return ok;
+}
+
+bool Db::updateApType(const std::string& bssid, int type) {
+    std::lock_guard<std::mutex> lk(mu_);
+    LOG(INFO) << "Db::updateApType bssid=" << bssid << " type=" << type;
+    if (db_ == nullptr) {
+        LOG(WARNING) << "Db::updateApType db not open";
+        return false;
+    }
+    const char* sql = "UPDATE ap SET type=?2 WHERE bssid=?1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        LOG(ERROR) << "Db::updateApType prepare failed: " << sqlite3_errmsg(db_);
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, bssid.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int (stmt, 2, type);
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    LOG(INFO) << "Db::updateApType done bssid=" << bssid << " ok=" << ok;
+    return ok;
+}
+
+bool Db::apExists(const std::string& bssid) {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (db_ == nullptr) {
+        LOG(WARNING) << "Db::apExists db not open";
+        return false;
+    }
+    const char* sql = "SELECT 1 FROM ap WHERE bssid=?1 LIMIT 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        LOG(ERROR) << "Db::apExists prepare failed: " << sqlite3_errmsg(db_);
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, bssid.c_str(), -1, SQLITE_TRANSIENT);
+    bool exists = (sqlite3_step(stmt) == SQLITE_ROW);
+    sqlite3_finalize(stmt);
+    LOG(INFO) << "Db::apExists bssid=" << bssid << " exists=" << exists;
+    return exists;
+}
+
+std::vector<ApEntry> Db::listAps() {
+    std::lock_guard<std::mutex> lk(mu_);
+    std::vector<ApEntry> out;
+    if (db_ == nullptr) {
+        LOG(WARNING) << "Db::listAps db not open";
+        return out;
+    }
+    const char* sql = "SELECT bssid, type, ssid, ch FROM ap ORDER BY bssid;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        LOG(ERROR) << "Db::listAps prepare failed: " << sqlite3_errmsg(db_);
+        return out;
+    }
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ApEntry a;
+        a.bssid = colText(stmt, 0);
+        a.type  = sqlite3_column_int(stmt, 1);
+        a.ssid  = colText(stmt, 2);
+        a.ch    = sqlite3_column_int(stmt, 3);
+        out.push_back(std::move(a));
+    }
+    sqlite3_finalize(stmt);
+    LOG(INFO) << "Db::listAps count=" << out.size();
+    return out;
 }

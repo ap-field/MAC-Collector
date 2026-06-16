@@ -144,6 +144,7 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
     r.ok    = true;
     r.addr2 = frameMac;
     r.rssi  = rssi;
+    r.apBssid = Mac(hdr.addr1);
 
     const char* kindName =
         (r.kind == FrameKind::Auth)  ? "auth"  :
@@ -151,4 +152,42 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
     LOG(INFO) << "Parser::parse accepted mac=" << frameMac.toString()
               << " kind=" << kindName << " rssi=" << rssi;
     return r;
+}
+
+Parser::BeaconInfo Parser::parseBeacon(const uint8_t* data, int len){
+    BeaconInfo info{false, Mac{}, " ", 0};
+    int rssi = 0;
+    uint16_t rtlen = 0;
+    if (!extractRadiotap(data, len, &rssi, &rtlen))
+        return info;
+    if (len < rtlen +24) return info;
+
+    Dot11Header hdr;
+    std::memcpy(&hdr, data + rtlen, sizeof(hdr));
+
+    uint16_t fc = hdr.frameControl;
+    if (Dot11::frameType(fc) != Dot11::TYPE_MGT)
+        return info;
+    if(Dot11::frameSubtype(fc) != Dot11::SUBTYPE_BEACON)
+        return info;
+
+    info.bssid = Mac(hdr.addr2);
+
+    int ieOff = rtlen + 24 + 12;
+
+    while (ieOff +2 <= len) {
+        uint8_t id = data[ieOff];
+        uint8_t elen = data[ieOff + 1];
+        if (ieOff + 2 + elen > len) break;
+
+        if(id == 0 && elen > 0){
+            info.ssid = std::string(data + ieOff + 2, data + ieOff +2 + elen);
+        } else if (id == 3 && elen == 1) {
+            info.channel = data[ieOff + 2];
+        }
+        ieOff += 2 + elen;
+    }
+    info.ok =true;
+    return info;
+
 }
