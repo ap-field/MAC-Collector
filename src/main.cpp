@@ -115,6 +115,8 @@ int main(int argc, char** argv) {
                      worker,  &CaptureWorker::run);
     QObject::connect(worker,  &CaptureWorker::candidateFound,
                      &win,    &KioskWindow::onCandidateFound);
+    QObject::connect(worker,  &CaptureWorker::beaconFound,
+                     &win,    &KioskWindow::onBeaconFound);
     QObject::connect(worker,  &CaptureWorker::errorOccurred,
                      &win,    &KioskWindow::onCaptureError);
     QObject::connect(worker,  &CaptureWorker::captureStarted,

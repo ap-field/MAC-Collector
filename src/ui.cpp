@@ -37,6 +37,7 @@
 #include <QCryptographicHash>
 #include <QJsonArray>
 #include <QListWidget>
+#include <QSpinBox>
 #include <QTabWidget>
 #include <algorithm>
 #include <set>
@@ -135,50 +136,28 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent)
         "QComboBox:focus { border: 2px solid #2563EB; }");
     form->addRow(mkLabel("네트워크 인터페이스:"), ifaceCombo_);
 
-    // 채널 목록 — 추가/삭제 가능한 리스트
+    // 채널 목록 — 스피터 행 사
     auto* channelGroup = new QWidget();
-    auto* channelVL = new QVBoxLayout(channelGroup);
-    channelVL->setContentsMargins(0, 0, 0, 0);
-    channelVL->setSpacing(4);
+    auto* channelGroupVL = new QVBoxLayout(channelGroup);
+    channelGroupVL->setContentsMargins(0, 0, 0, 0);
+    channelGroupVL->setSpacing(4);
 
-    auto* chAddRow = new QHBoxLayout();
-    chAddRow->setSpacing(6);
-    channelAddEdit_ = mkLineEdit("1-14");
-    channelAddEdit_->setValidator(new QIntValidator(1, 14, this));
-    channelAddEdit_->setMaximumWidth(70);
-    channelAddBtn_ = new QPushButton("추가");
-    channelAddBtn_->setMinimumHeight(34);
-    channelAddBtn_->setStyleSheet(
+    channelRowsLayout_ = new QVBoxLayout();
+    channelRowsLayout_ -> setContentsMargins(0, 0, 0, 0);
+    channelRowsLayout_ -> setSpacing(4);
+    channelGroupVL -> addLayout(channelRowsLayout_);
+
+    auto* addChRowBtn = new QPushButton(" 채널 추가 ");
+    addChRowBtn->setMinimumHeight(32);
+    addChRowBtn->setStyleSheet(
         "QPushButton { background: #2563EB; color: white; border: none;"
-        "  border-radius: 6px; padding: 4px 12px; font-size: 9pt; }"
+        "  border-radius: 6px; font-size: 9pt; font-weight: 600; }"
         "QPushButton:hover { background: #1D4ED8; }");
-    chAddRow->addWidget(channelAddEdit_);
-    chAddRow->addWidget(channelAddBtn_);
-    chAddRow->addStretch(1);
-    channelVL->addLayout(chAddRow);
+    channelGroupVL-> addWidget(addChRowBtn);
 
-    channelList_ = new QListWidget();
-    channelList_->setFixedHeight(80);
-    channelList_->setStyleSheet(
-        "QListWidget { border: 1.5px solid #D1D5DB; border-radius: 6px;"
-        "  font-size: 10pt; }"
-        "QListWidget::item:selected { background: #DBEAFE; color: #1D4ED8; }");
-    channelVL->addWidget(channelList_);
-
-    channelRemoveBtn_ = new QPushButton("선택 삭제");
-    channelRemoveBtn_->setMinimumHeight(30);
-    channelRemoveBtn_->setStyleSheet(
-        "QPushButton { background: #F3F4F6; color: #374151;"
-        "  border: 1px solid #D1D5DB; border-radius: 6px;"
-        "  font-size: 9pt; }"
-        "QPushButton:hover { background: #E5E7EB; }");
-    channelVL->addWidget(channelRemoveBtn_);
-
-    form->addRow(mkLabel("채널 목록 (1-14):"), channelGroup);
-
-    connect(channelAddBtn_,    &QPushButton::clicked, this, &SettingsDialog::onAddChannel);
-    connect(channelRemoveBtn_, &QPushButton::clicked, this, &SettingsDialog::onRemoveChannel);
-    connect(channelAddEdit_,   &QLineEdit::returnPressed, this, &SettingsDialog::onAddChannel);
+    form -> addRow(mkLabel("채널 목록(1~165):"), channelGroup);
+    addChannelRow(1);
+    connect(addChRowBtn, &QPushButton::clicked, this, [this]()  {addChannelRow(); });
 
     // RSSI — QLineEdit + 숫자 전용
     rssiEdit_ = mkLineEdit("-20");
@@ -189,7 +168,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent)
     // DB 경로
     dbEdit_ = mkLineEdit("MAC_address.db");
     dbEdit_->setText("MAC_address.db");
-    form->addRow(mkLabel("DB 파일 경로:"), dbEdit_);
+    form->addRow(mkLabel("DB 파일 이름:"), dbEdit_);
 
     root->addLayout(form);
 
@@ -229,18 +208,25 @@ void SettingsDialog::loadSettings() {
     if (obj.contains("iface"))
         ifaceCombo_->setCurrentText(obj["iface"].toString());
     if (obj.contains("channels") && obj["channels"].isArray()) {
-        channelList_->clear();
+        while (channelRowsLayout_->count() > 0) {
+            auto* item = channelRowsLayout_->takeAt(0);
+            if (item->widget()) item->widget()->deleteLater();
+            delete item;
+        }
         for (const auto& v : obj["channels"].toArray()) {
             int ch = v.toInt();
-            if (ch >= 1 && ch <= 14)
-                channelList_->addItem(QString::number(ch));
+            if (ch >= 1 && ch <= 165) addChannelRow(ch);
         }
+        if (channelRowsLayout_->count() == 0) addChannelRow(1);
     } else if (obj.contains("channel")) {
-        // 구버전 단일 채널 → 리스트로 변환
         int ch = obj["channel"].toInt();
-        if (ch >= 1 && ch <= 14) {
-            channelList_->clear();
-            channelList_->addItem(QString::number(ch));
+        if (ch >= 1 && ch <= 165) {
+            while (channelRowsLayout_->count() > 0) {
+                auto* item = channelRowsLayout_->takeAt(0);
+                if (item->widget()) item->widget()->deleteLater();
+                delete item;
+            }
+            addChannelRow(ch);
         }
     }
     if (obj.contains("rssi"))
@@ -262,8 +248,10 @@ void SettingsDialog::saveSettings() {
     }
     obj["iface"]   = ifaceCombo_->currentText().trimmed();
     QJsonArray chArr;
-    for (int i = 0; i < channelList_->count(); ++i)
-        chArr.append(channelList_->item(i)->text().toInt());
+    for (int i = 0; i < channelRowsLayout_->count(); ++i) {
+        auto* spin = channelRowsLayout_->itemAt(i)->widget()->findChild<QSpinBox*>();
+        if (spin) chArr.append(spin->value());
+    }
     obj["channels"] = chArr;
     obj.remove("channel");  // 구버전 키 제거
     obj["rssi"]    = rssiEdit_->text().toInt();
@@ -293,35 +281,93 @@ void SettingsDialog::onOk() {
         QMessageBox::warning(this, "입력 오류", "RSSI는 -100 ~ -20 사이여야 합니다.");
         return;
     }
+    {
+        QSet<int> seen;
+        for (int i = 0; i < channelRowsLayout_->count(); ++i) {
+            auto* spin = channelRowsLayout_->itemAt(i)->widget()->findChild<QSpinBox*>();
+            if (!spin) continue;
+            int ch = spin->value();
+            if (seen.contains(ch)) {
+                LOG(WARNING) << "SettingsDialog::onOk validation failed: duplicate channel=" << ch;
+                QMessageBox::warning(this, "입력 오류",
+                    QString("채널 %1이(가) 중복되었습니다.").arg(ch));
+                return;
+            }
+            seen.insert(ch);
+        }
+    }
     LOG(INFO) << "SettingsDialog::onOk accepted iface="
               << ifaceCombo_->currentText().trimmed().toStdString()
-              << " channels=" << channelList_->count() << " rssi=" << rssi;
+              << " channels=" << channelRowsLayout_->count() << " rssi=" << rssi;
     saveSettings();
     accept();
 }
 
-QString SettingsDialog::iface()         const { return ifaceCombo_->currentText().trimmed(); }
-QVector<int> SettingsDialog::channel()       const {
+QString SettingsDialog::iface()        const { return ifaceCombo_->currentText().trimmed(); }
+QVector<int> SettingsDialog::channel() const {
     QVector<int> result;
-    for (int i = 0; i < channelList_->count(); ++i)
-        result.append(channelList_->item(i)->text().toInt());
+    for (int i = 0; i < channelRowsLayout_->count(); ++i) {
+        auto* spin = channelRowsLayout_->itemAt(i)->widget()->findChild<QSpinBox*>();
+        if (spin) result.append(spin->value());
+    }
     return result;
 }
 int     SettingsDialog::rssiThreshold() const { return rssiEdit_->text().toInt(); }
 QString SettingsDialog::dbPath()        const { return dbEdit_->text().trimmed(); }
 
-void SettingsDialog::onAddChannel() {
-    int ch = channelAddEdit_->text().toInt();
-    if (ch < 1 || ch > 14) return;
-    for (int i = 0; i < channelList_->count(); ++i)
-        if (channelList_->item(i)->text().toInt() == ch) return;
-    channelList_->addItem(QString::number(ch));
-    channelAddEdit_->clear();
+void SettingsDialog::addChannelRow(int ch) {
+    auto* rowWidget = new QWidget();
+    auto* rowHL = new QHBoxLayout(rowWidget);
+    rowHL->setContentsMargins(0, 0, 0, 0);
+    rowHL->setSpacing(8);
+
+    auto* label = new QLabel(QString("채널 %1").arg(channelRowsLayout_->count() + 1));
+    label->setMinimumWidth(55);
+    label->setStyleSheet("QLabel { font-size: 10pt; color: #374151; }");
+
+    auto* spin = new QSpinBox();
+    spin->setRange(1, 165);
+    spin->setValue(ch);
+    spin->setMinimumHeight(34);
+    spin->setStyleSheet(
+        "QSpinBox { border: 1.5px solid #D1D5DB; border-radius: 6px;"
+        "  padding: 4px 8px; font-size: 10pt; }"
+        "QSpinBox:focus { border: 2px solid #2563EB; }");
+
+    auto* rmBtn = new QPushButton("−");
+    rmBtn->setFixedSize(30, 30);
+    rmBtn->setStyleSheet(
+        "QPushButton { background: #F3F4F6; color: #374151;"
+        "  border: 1px solid #D1D5DB; border-radius: 6px;"
+        "  font-size: 13pt; font-weight: 700; }"
+        "QPushButton:hover { background: #E5E7EB; }"
+        "QPushButton:disabled { background: #F9FAFB; color: #D1D5DB; }");
+
+    rowHL->addWidget(label);
+    rowHL->addWidget(spin, 1);
+    rowHL->addWidget(rmBtn);
+
+    channelRowsLayout_->addWidget(rowWidget);
+    renumberRows();
+
+    connect(rmBtn, &QPushButton::clicked, this, [this, rowWidget]() {
+        if (channelRowsLayout_->count() <= 1) return;
+        channelRowsLayout_->removeWidget(rowWidget);
+        rowWidget->deleteLater();
+        renumberRows();
+    });
 }
 
-void SettingsDialog::onRemoveChannel() {
-    for (auto* item : channelList_->selectedItems())
-        delete item;
+void SettingsDialog::renumberRows() {
+    int count = channelRowsLayout_->count();
+    for (int i = 0; i < count; ++i) {
+        auto* w = channelRowsLayout_->itemAt(i)->widget();
+        if (!w) continue;
+        if (auto* lbl = w->findChild<QLabel*>())
+            lbl->setText(QString("채널 %1").arg(i + 1));
+        if (auto* btn = w->findChild<QPushButton*>())
+            btn->setEnabled(count > 1);
+    }
 }
 
 // ════════════════════════════════════════════════
@@ -929,13 +975,50 @@ AdminPage::AdminPage(Db* db, ApiClient* api, QWidget* parent)
         "  border-bottom: 1px solid #F3F4F6; }"
         "QTableWidget::item:selected { background: #DBEAFE;"
         "  color: #1D4ED8; }");
-    root->addWidget(table_, 1);
+    // ── AP 목록 테이블 ──
+    apTable_ = new QTableWidget(0, 4);
+    apTable_->setHorizontalHeaderLabels({"BSSID", "SSID", "채널", "구분"});
+    apTable_->horizontalHeader()->setStretchLastSection(true);
+    apTable_->horizontalHeader()->setHighlightSections(false);
+    apTable_->verticalHeader()->setVisible(false);
+    apTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    apTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    apTable_->setShowGrid(false);
+    apTable_->setStyleSheet(
+        "QTableWidget { background: white; border: none; }"
+        "QHeaderView::section { background: #F3F4F6; color: #374151;"
+        "  padding: 6px 12px; border: none;"
+        "  border-bottom: 1px solid #E5E7EB; font-weight: 700; }"
+        "QTableWidget::item { padding: 6px 20px; color: #111827;"
+        "  border-bottom: 1px solid #F3F4F6; }"
+        "QTableWidget::item:selected { background: #DBEAFE; color: #1D4ED8; }");
+
+    auto* apTab = new QWidget();
+    auto* apVL  = new QVBoxLayout(apTab);
+    apVL->setContentsMargins(0, 0, 0, 0);
+    apVL->setSpacing(8);
+    apVL->addWidget(apTable_, 1);
+
+    auto* apBtnRow = new QHBoxLayout();
+    changeTypeBtn_ = mkBtn("CA / EA 전환", "#2563EB", "#1D4ED8");
+    removeApBtn_   = mkBtn("AP 제거",      "#DC2626", "#B91C1C");
+    apBtnRow->addWidget(changeTypeBtn_);
+    apBtnRow->addWidget(removeApBtn_);
+    apBtnRow->addStretch(1);
+    apVL->addLayout(apBtnRow);
+
+    auto* tabs = new QTabWidget();
+    tabs->addTab(table_,  "등록 기기");
+    tabs->addTab(apTab,   "AP 목록");
+    root->addWidget(tabs, 1);
 
     connect(searchBtn_,  &QPushButton::clicked,      this, &AdminPage::onSearch);
     connect(searchEdit_, &QLineEdit::returnPressed,   this, &AdminPage::onSearch);
     connect(deleteBtn_,  &QPushButton::clicked,       this, &AdminPage::onDeleteSelected);
     connect(editBtn_,    &QPushButton::clicked,       this, &AdminPage::onEditSelected);
     connect(backBtn_,    &QPushButton::clicked,       this, &AdminPage::onBack);
+    connect(changeTypeBtn_, &QPushButton::clicked,    this, &AdminPage::onChangeApType);
+    connect(removeApBtn_,   &QPushButton::clicked,    this, &AdminPage::onRemoveAp);
 
     // 서버(API) 목록 응답을 직접 받아 테이블을 서버 우선으로 갱신한다.
     if (api_) {
@@ -955,6 +1038,7 @@ void AdminPage::refresh() {
     }
     // 응답 대기 중에도 현재 보유한(서버) 데이터로 즉시 렌더한다.
     reloadTable("");
+    refreshAps();
 }
 
 void AdminPage::focusSearch() {
@@ -1215,6 +1299,51 @@ void AdminPage::onEditSelected() {
 void AdminPage::onBack() {
     LOG(INFO) << "AdminPage::onBack";
     emit backRequested();
+}
+
+void AdminPage::refreshAps() {
+    auto aps = db_->listAps();
+    apTable_->setRowCount(0);
+    for (const auto& ap : aps) {
+        int row = apTable_->rowCount();
+        apTable_->insertRow(row);
+        apTable_->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(ap.bssid)));
+        apTable_->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(ap.ssid)));
+        apTable_->setItem(row, 2, new QTableWidgetItem(QString::number(ap.ch)));
+        apTable_->setItem(row, 3, new QTableWidgetItem(ap.type == 0 ? "CA" : "EA"));
+    }
+    apTable_->resizeColumnsToContents();
+    LOG(INFO) << "AdminPage::refreshAps count=" << aps.size();
+}
+
+void AdminPage::onChangeApType() {
+    int row = apTable_->currentRow();
+    if (row < 0) {
+        LOG(WARNING) << "AdminPage::onChangeApType no row selected";
+        return;
+    }
+    std::string bssid   = apTable_->item(row, 0)->text().toStdString();
+    QString     curType = apTable_->item(row, 3)->text();
+    int         newType = (curType == "CA") ? 1 : 0;
+    LOG(INFO) << "AdminPage::onChangeApType bssid=" << bssid
+              << " CA->EA=" << (newType == 1);
+    db_->updateApType(bssid, newType);
+    refreshAps();
+}
+
+void AdminPage::onRemoveAp() {
+    int row = apTable_->currentRow();
+    if (row < 0) {
+        LOG(WARNING) << "AdminPage::onRemoveAp no row selected";
+        return;
+    }
+    QString bssid = apTable_->item(row, 0)->text();
+    auto btn = QMessageBox::question(this, "AP 제거",
+        QString("AP %1 을(를) 목록에서 제거하시겠습니까?").arg(bssid));
+    if (btn != QMessageBox::Yes) return;
+    LOG(INFO) << "AdminPage::onRemoveAp bssid=" << bssid.toStdString();
+    db_->removeAp(bssid.toStdString());
+    refreshAps();
 }
 
 // ════════════════════════════════════════════════
@@ -1929,4 +2058,18 @@ void KioskWindow::updateElapsed() {
 
 void KioskWindow::updateDeviceCount(int count) {
     deviceCountLabel_->setText(QString("감지: %1 개").arg(count));
+}
+
+void KioskWindow::onBeaconFound(QString bssid, QString ssid, int channel) {
+    std::string bssidStr = bssid.toStdString();
+    if (!db_->apExists(bssidStr)) {
+        ApEntry ap;
+        ap.bssid = bssidStr;
+        ap.ssid  = ssid.toStdString();
+        ap.ch    = channel;
+        ap.type  = 0;   // 기본 미분류(CA)
+        LOG(INFO) << "KioskWindow::onBeaconFound new AP bssid=" << bssidStr
+                  << " ssid=" << ap.ssid << " ch=" << channel;
+        db_->addAp(ap);
+    }
 }

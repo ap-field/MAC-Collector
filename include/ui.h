@@ -19,6 +19,7 @@ class QLabel;
 class QTimer;
 class QSoundEffect;
 class QSpinBox;
+class QVBoxLayout;
 class QCloseEvent;
 class Db;
 class CaptureWorker;
@@ -36,18 +37,15 @@ public:
 
 private slots:
     void onOk();
-    void onAddChannel();
-    void onRemoveChannel();
 
 private:
     void loadSettings();
     void saveSettings();
+    void addChannelRow(int ch = 1);
+    void renumberRows();
 
     QComboBox* ifaceCombo_;
-    QListWidget* channelList_;
-    QLineEdit*   channelAddEdit_;
-    QPushButton* channelAddBtn_;
-    QPushButton* channelRemoveBtn_;
+    QVBoxLayout* channelRowsLayout_;
     QLineEdit* rssiEdit_;
     QLineEdit* dbEdit_;
 };
