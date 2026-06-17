@@ -700,6 +700,30 @@ void Phase1Widget::onUpdateButtonClicked() {
     emit updateRequested(btn->property("macStr").toString());
 }
 
+static void setupPhoneEdit(QLineEdit* edit) {
+    QObject::connect(edit, &QLineEdit::textChanged, edit, [edit](const QString& text) {
+        QString digits;
+        for (QChar c : text)
+            if (c.isDigit()) digits += c;
+        if (digits.length() > 11) digits = digits.left(11);
+
+        QString formatted;
+        if (digits.length() <= 3)
+            formatted = digits;
+        else if (digits.length() <= 7)
+            formatted = digits.left(3) + '-' + digits.mid(3);
+        else
+            formatted = digits.left(3) + '-' + digits.mid(3, 4) + '-' + digits.mid(7);
+
+        if (formatted == text) return;
+        edit->blockSignals(true);
+        int pos = edit->cursorPosition() + (formatted.length() - text.length());
+        edit->setText(formatted);
+        edit->setCursorPosition(qBound(0, pos, formatted.length()));
+        edit->blockSignals(false);
+    });
+}
+
 // ════════════════════════════════════════════════
 //  Phase2Widget
 // ════════════════════════════════════════════════
@@ -759,6 +783,7 @@ Phase2Widget::Phase2Widget(QWidget* parent) : QWidget(parent)
     form->addRow(mkLabel("이름 *"), nameEdit_);
 
     phoneEdit_ = mkEdit("010-0000-0000");
+    setupPhoneEdit(phoneEdit_);
     form->addRow(mkLabel("전화번호 *"), phoneEdit_);
 
     typeCombo_ = new QComboBox();
@@ -1222,6 +1247,7 @@ void AdminPage::onEditSelected() {
     auto* macLbl   = new QLabel(mac);
     auto* nameEdit = new QLineEdit(name);
     auto* phoneEdt = new QLineEdit(phone);
+    setupPhoneEdit(phoneEdt);
     auto* typeCmb  = new QComboBox();
     typeCmb->addItems({"스마트폰", "노트북", "태블릿", "IoT 기기", "기타"});
 
