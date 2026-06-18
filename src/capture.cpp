@@ -178,7 +178,7 @@ void CaptureWorker::run() {
                   << " RSSI=" << r.rssi;
 
         auto it = beaconCache_.find(r.apBssid);
-        if (it != beaconCache_.end()) {
+        if (it != beaconCache_.end() && db_->macExists(r.addr2)) {
             const auto& bi = it->second;
             emit beaconFound(
                 QString::fromStdString(bi.bssid.toString()),
