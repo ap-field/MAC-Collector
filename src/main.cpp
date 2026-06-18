@@ -64,18 +64,15 @@ int main(int argc, char** argv) {
     }
 
     // ── REST 백엔드 ──
-    const QString kApiBaseUrl = "https://ap-field.com";
-    // 서버 연동은 필수. 주소가 비어 있으면 로컬 전용으로 계속하지 않고 즉시 종료한다.
+    const QString kApiBaseUrl = qEnvironmentVariable("MACCOLLECTOR_API_URL");
     if (kApiBaseUrl.isEmpty()) {
-        LOG(ERROR) << "kApiBaseUrl is empty: REST backend required, aborting";
+        LOG(ERROR) << "MACCOLLECTOR_API_URL is empty: REST backend required, aborting";
         QMessageBox::critical(nullptr, "설정 오류",
-                              "서버 주소(kApiBaseUrl)가 비어 있습니다.\n"
-                              "REST 백엔드 연동이 필요하여 프로그램을 종료합니다.");
+                              "API URL (MACCOLLECTOR_API_KEY)가 비어 있습니다.\n"
+                              "서버 연동이 필요하여 프로그램을 종료합니다.");
         return 3;
     }
 
-    // API 키는 코드에 박지 않고 실행 시 환경변수 MACCOLLECTOR_API_KEY 에서 읽는다
-    // (git 노출 방지). 키가 없으면 서버가 모든 요청을 401 로 거절하므로 즉시 종료한다.
     const QString kApiKey = qEnvironmentVariable("MACCOLLECTOR_API_KEY");
     if (kApiKey.isEmpty()) {
         LOG(ERROR) << "MACCOLLECTOR_API_KEY is empty: x-api-key required, aborting";

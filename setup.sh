@@ -193,28 +193,47 @@ DESKTOP
 chown "$REAL_USER:$REAL_USER" "$AUTOSTART_DIR/ibus.desktop"
 echo "[5/7] Completed."
 
-# ── 6. 서버 인증 키(.env) 등록 ──
-# 키는 코드/저장소에 넣지 않고 이 기기의 .env 에만 저장한다(git 비추적).
-ENV_FILE="$SCRIPT_DIR/.env"
-echo "[6/7] Configuring API key (.env)..."
-EXISTING_KEY=""
-if [ -f "$ENV_FILE" ]; then
-    EXISTING_KEY="$(grep -E '^MACCOLLECTOR_API_KEY=' "$ENV_FILE" | head -n1 | cut -d= -f2-)"
-fi
+# ── 6. 서버 인증 키 및 API URL 등록 ──
+ENV_FILE="/etc/environment"
+echo "[6/7] Configuring API key and URL ..."
+
+EXISTING_KEY="$(grep -E '^MACCOLLECTOR_API_KEY=' /etc/environment | head -n1 | cut -d= -f2-)"
+EXISTING_URL="$(grep -E '^MACCOLLECTOR_API_URL=' /etc/environment | head -n1 | cut -d= -f2-)"
+
+# API 키
 if [ -n "$EXISTING_KEY" ]; then
-    echo "  → 기존 키가 .env 에 있습니다. 유지합니다. (변경하려면 .env 를 직접 수정)"
+    echo "  → 기존 API 키가 /etc/environment 에 있습니다. 유지합니다. (변경하려면 /etc/environment 를 직접 수정)"
+    INPUT_KEY="$EXISTING_KEY"
 else
-    # 비대화형 실행 등으로 입력이 없으면 빈 값으로 두고 안내만 한다.
     read -r -p "  서버 팀에게 받은 API 키를 입력하세요 (Enter 로 건너뛰기): " INPUT_KEY || true
-    printf 'MACCOLLECTOR_API_KEY=%s\n' "$INPUT_KEY" > "$ENV_FILE"
-    chown "$REAL_USER:$REAL_USER" "$ENV_FILE"
-    chmod 600 "$ENV_FILE"
     if [ -z "$INPUT_KEY" ]; then
         echo "  ⚠ 키를 입력하지 않았습니다. 실행 전 $ENV_FILE 에 키를 채워야 합니다."
-    else
-        echo "  → $ENV_FILE 저장 완료 (권한 600, git 비추적)"
     fi
 fi
+
+# API URL
+if [ -n "$EXISTING_URL" ]; then
+    echo "  → 기존 API URL이 /etc/environment 에 있습니다: $EXISTING_URL (변경하려면 /etc/environment 를 직접 수정)"
+    INPUT_URL="$EXISTING_URL"
+else
+    read -r -p "  서버 주소를 입력하세요 (예: https://ap-field.com, Enter 로 건너뛰기): " INPUT_URL || true
+    if [ -z "$INPUT_URL" ]; then
+        echo "  ⚠ URL을 입력하지 않았습니다. 실행 전 $ENV_FILE 에 URL을 채워야 합니다."
+    fi
+fi
+
+# 기존 항목은 sed로 교체, 없으면 append — 다른 시스템 환경변수 보존
+for PAIR in "MACCOLLECTOR_API_KEY=$INPUT_KEY" "MACCOLLECTOR_API_URL=$INPUT_URL"; do
+    KEY="${PAIR%%=*}"
+    if grep -qE "^${KEY}=" /etc/environment 2>/dev/null; then
+        sed -i "s|^${KEY}=.*|${PAIR}|" /etc/environment
+    else
+        echo "$PAIR" >> /etc/environment
+    fi
+done
+chown root:root /etc/environment
+chmod 644 /etc/environment
+echo "  → /etc/environment 저장 완료"
 
 # ── 7. 실행 스크립트 생성 ──
 echo "[7/7] Creating run.sh script..."
@@ -231,17 +250,18 @@ if [ ! -f "$BIN" ]; then
     exit 1
 fi
 
-# ── 서버 인증 키 로드 ──
-# 키는 git 에 올리지 않는 .env 파일에 보관한다(setup.sh 가 생성).
-# .env 를 source(.) 로 읽으면 & # * 같은 특수문자가 셸 문법으로 해석돼 깨지므로,
-# KEY=VALUE 의 값만 그대로 뽑아 export 한다.
-if [ -f "$SCRIPT_DIR/.env" ]; then
-    MACCOLLECTOR_API_KEY="$(grep -E '^MACCOLLECTOR_API_KEY=' "$SCRIPT_DIR/.env" | head -n1 | cut -d= -f2-)"
-    export MACCOLLECTOR_API_KEY
+# /etc/environment 는 로그인 시 로드되므로 현재 세션에 없으면 직접 읽는다.
+if [ -z "$MACCOLLECTOR_API_KEY" ] || [ -z "$MACCOLLECTOR_API_URL" ]; then
+    MACCOLLECTOR_API_KEY="$(grep -E '^MACCOLLECTOR_API_KEY=' /etc/environment | head -n1 | cut -d= -f2-)"
+    MACCOLLECTOR_API_URL="$(grep -E '^MACCOLLECTOR_API_URL=' /etc/environment | head -n1 | cut -d= -f2-)"
+    export MACCOLLECTOR_API_KEY MACCOLLECTOR_API_URL
 fi
 if [ -z "$MACCOLLECTOR_API_KEY" ]; then
     echo "Error: API 키가 없습니다. 'sudo bash setup.sh' 를 실행해 키를 등록하세요."
-    echo "       (또는 .env 파일에 MACCOLLECTOR_API_KEY=... 한 줄을 직접 추가)"
+    exit 1
+fi
+if [ -z "$MACCOLLECTOR_API_URL" ]; then
+    echo "Error: API URL이 없습니다. 'sudo bash setup.sh' 를 실행해 URL을 등록하세요."
     exit 1
 fi
 

@@ -28,7 +28,7 @@ void ApiClient::registerDevice(const QString& mac,
     body["mac_address"]  = mac;
     body["owner_name"]   = name;
     body["phone_number"] = phoneNum;
-    body["device_type"]  = QString::number(deviceType);   // String: "1"=노트북, "2"=핸드폰,... "0"=기타
+    body["type"]  = QString::number(deviceType);   // String: "1"=노트북, "2"=핸드폰,... "0"=기타
     body["rssi"]         = rssi;
     body["requested_at"] = requestedAt;
 
@@ -80,7 +80,7 @@ void ApiClient::updateDevice(const QString& mac,
     body["mac_address"]  = mac;
     body["owner_name"]   = name;
     body["phone_number"] = phoneNum;
-    body["device_type"]  = QString::number(deviceType);
+    body["type"]  = QString::number(deviceType);
     body["requested_at"] = requestedAt;
     // ※ rssi, vendor 는 변경 요청에 포함하지 않음 (프로토콜 명세)
 
@@ -185,7 +185,7 @@ void ApiClient::fetchDeviceList()
         }
         QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();
         // 실제 응답 형태:
-        // { "data": [ { "mac":..., "name":..., "phone_num":..., "device_type":"1",
+        // { "data": [ { "mac":..., "name":..., "phone_num":..., "type":"1",
         //               "request_at":"yyMMddTHHmmss" }, ... ] }
         QJsonArray arr = resp["data"].toArray();
         QVector<DeviceRecord> devices;
@@ -196,7 +196,7 @@ void ApiClient::fetchDeviceList()
             d.mac          = o["mac"].toString().toUpper();
             d.name         = o["name"].toString();
             d.phoneNum     = o["phone_num"].toString();
-            d.deviceType   = o["device_type"].toString().toInt();
+            d.deviceType   = o["type"].toString().toInt();
             d.registeredAt = o["request_at"].toString();
             devices.push_back(d);
         }
