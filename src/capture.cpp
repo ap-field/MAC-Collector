@@ -145,14 +145,11 @@ void CaptureWorker::run() {
             break;
         }
 
-        // beacon 먼저 시도 — BSSID/SSID/채널을 AP 테이블에 넘긴다
+        // beacon — BSSID/SSID/채널을 캐시에만 저장. station 탐지 시 조회해 emit.
         {
             Parser::BeaconInfo bi = parser_.parseBeacon(data, static_cast<int>(hdr->caplen));
             if (bi.ok) {
-                emit beaconFound(
-                    QString::fromStdString(bi.bssid.toString()),
-                    QString::fromStdString(bi.ssid),
-                    bi.channel);
+                beaconCache_[bi.bssid] = bi;
                 continue;
             }
         }
@@ -179,6 +176,15 @@ void CaptureWorker::run() {
         LOG(INFO) << "[CAPTURE] MAC 탐지: " << macStr.toStdString()
                   << " 경유=" << kindName
                   << " RSSI=" << r.rssi;
+
+        auto it = beaconCache_.find(r.apBssid);
+        if (it != beaconCache_.end()) {
+            const auto& bi = it->second;
+            emit beaconFound(
+                QString::fromStdString(bi.bssid.toString()),
+                QString::fromStdString(bi.ssid),
+                bi.channel);
+        }
         emit candidateFound(macStr, r.rssi, ts);
     }
 

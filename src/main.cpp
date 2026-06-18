@@ -86,8 +86,9 @@ int main(int argc, char** argv) {
     // db 와 동일한 방식. win 이 api 보다 먼저 소멸하므로 dangling 위험 없음.
     ApiClient api(kApiBaseUrl, kApiKey);
     LOG(INFO) << "ApiClient created baseUrl=" << kApiBaseUrl.toStdString();
-    // 서버 우선: 시작 시 등록된 MAC 목록을 1회 동기화
+    // 서버 우선: 시작 시 등록된 MAC/AP 목록을 1회 동기화
     api.fetchDeviceList();
+    api.fetchAPs();
 
     KioskWindow win(&db, &api);
     win.show();

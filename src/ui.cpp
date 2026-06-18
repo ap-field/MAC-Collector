@@ -1443,6 +1443,10 @@ KioskWindow::KioskWindow(Db* db, ApiClient* api, QWidget* parent)
                 this, &KioskWindow::onDeviceListFetched);
         connect(api_, &ApiClient::deviceListFailed,
                 this, &KioskWindow::onDeviceListFailed);
+        connect(api_, &ApiClient::apListFetched,
+                this, &KioskWindow::onApListFetched);
+        connect(api_, &ApiClient::apListFailed,
+                this, &KioskWindow::onApListFailed);
         LOG(INFO) << "KioskWindow: ApiClient signals connected";
     } else {
         LOG(WARNING) << "KioskWindow: no ApiClient injected, running local-DB only";
@@ -2097,5 +2101,26 @@ void KioskWindow::onBeaconFound(QString bssid, QString ssid, int channel) {
         LOG(INFO) << "KioskWindow::onBeaconFound new AP bssid=" << bssidStr
                   << " ssid=" << ap.ssid << " ch=" << channel;
         db_->addAp(ap);
+        if (api_)
+            api_->registerAPs(bssid, ap.type, ssid, channel);
     }
+}
+
+void KioskWindow::onApListFetched(QVector<ApRecord> aps) {
+    LOG(INFO) << "KioskWindow::onApListFetched count=" << aps.size();
+    for (const ApRecord& ap : aps) {
+        std::string bssidStr = ap.bssid.toStdString();
+        if (!db_->apExists(bssidStr)) {
+            ApEntry entry;
+            entry.bssid = bssidStr;
+            entry.ssid  = ap.ssid.toStdString();
+            entry.type  = ap.type;
+            entry.ch    = ap.channel;
+            db_->addAp(entry);
+        }
+    }
+}
+
+void KioskWindow::onApListFailed(QString reason) {
+    LOG(WARNING) << "KioskWindow::onApListFailed reason=" << reason.toStdString();
 }

@@ -2,6 +2,7 @@
 
 #include <glog/logging.h>
 #include <atomic>
+#include <map>
 #include <mutex>
 #include <set>
 
@@ -51,6 +52,7 @@ private:
     Db*               db_;
     std::atomic<bool> stop_;
     pcap_t*           pcap_ = nullptr;
-    std::set<Mac>     seenInSession_;
-    std::mutex        seenMu_;   // seenInSession_ 동시 접근 보호(캡처 스레드 ↔ 메인 스레드)
+    std::set<Mac>                        seenInSession_;
+    std::mutex                           seenMu_;   // seenInSession_ 동시 접근 보호(캡처 스레드 ↔ 메인 스레드)
+    std::map<Mac, Parser::BeaconInfo>    beaconCache_;
 };

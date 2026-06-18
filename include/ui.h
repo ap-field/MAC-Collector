@@ -221,6 +221,8 @@ public slots:
     void onDeleteFailed(QString mac, QString reason, bool networkError);
     void onDeviceListFetched(QVector<DeviceRecord> devices);
     void onDeviceListFailed(QString reason);
+    void onApListFetched(QVector<ApRecord> aps);
+    void onApListFailed(QString reason);
 
     // 보류(오프라인 저장) 항목을 서버에 재전송. 타이머/서버복구 시 호출.
     void trySyncPending();

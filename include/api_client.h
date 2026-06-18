@@ -8,6 +8,14 @@
 
 class QNetworkAccessManager;
 
+// 서버 /api/v1/aps 응답의 단일 AP 정보
+struct ApRecord {
+    QString ssid;
+    QString bssid;
+    int     type    = 0;
+    int     channel = 0;
+};
+
 // 서버 /v1/devices/lists 응답의 단일 디바이스 정보
 struct DeviceRecord {
     QString mac;            // 대문자 "AA:BB:CC:DD:EE:FF"
@@ -43,9 +51,20 @@ public:
     // 시나리오 2 — 전체 MAC 목록 조회 (중복 확인용)
     void fetchDeviceList();
 
+    // AP 목록 조회
+    void fetchAPs();
+
     // 시나리오 4 — 삭제 (관리자 페이지에서 등록 기기 제거)
     // DELETE /v1/devices/delete/{mac} — MAC 을 경로에 담아 보낸다(바디 없음).
     void deleteDevice(const QString& mac);
+
+    void registerAPs(const QString& bssid,
+                     int type,
+                     const QString& ssid,
+                     int            ch);
+
+
+
 
 signals:
     void registerSuccess(QString mac);
@@ -57,6 +76,12 @@ signals:
 
     void deleteSuccess(QString mac);
     void deleteFailed(QString mac, QString reason, bool networkError);
+
+    void registerAPsSuccess();
+    void registerAPsFailed();
+
+    void apListFetched(QVector<ApRecord> aps);
+    void apListFailed(QString reason);
 
     // 조회 성공: 등록된 디바이스 전체 정보 반환
     void deviceListFetched(QVector<DeviceRecord> devices);
