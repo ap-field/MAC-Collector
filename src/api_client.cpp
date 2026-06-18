@@ -22,15 +22,18 @@ void ApiClient::registerDevice(const QString& mac,
                                const QString& phoneNum,
                                int            deviceType,
                                int            rssi,
-                               const QString& requestedAt)
+                               const QString& requestedAt,
+                               const QString& bssid)
 {
     QJsonObject body;
     body["mac_address"]  = mac;
     body["owner_name"]   = name;
     body["phone_number"] = phoneNum;
-    body["type"]  = deviceType;
+    body["type"]         = deviceType;
     body["rssi"]         = rssi;
     body["requested_at"] = requestedAt;
+    if (!bssid.isEmpty())
+        body["bssid"] = bssid;
 
     const QString url = baseUrl_ + "/v1/devices/register";
     LOG(INFO) << "ApiClient::registerDevice POST " << url.toStdString()
@@ -196,7 +199,7 @@ void ApiClient::fetchDeviceList()
             d.mac          = o["mac"].toString().toUpper();
             d.name         = o["name"].toString();
             d.phoneNum     = o["phone_num"].toString();
-            d.deviceType   = o["type"].toString().toInt();
+            d.deviceType   = o["type"].toInt();
             d.registeredAt = o["request_at"].toString();
             devices.push_back(d);
         }

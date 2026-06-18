@@ -82,7 +82,8 @@ bool Db::createSchema() {
         "  updated_at    TEXT,"
         // 오프라인 보류 상태: NULL=동기화됨, 'register'/'update'/'delete'=서버 재전송 필요
         "  pending_op    TEXT,"
-        "  pending_rssi  INTEGER DEFAULT 0"
+        "  pending_rssi  INTEGER DEFAULT 0,"
+        "  bssid         TEXT"
         ");";
 
     const char* apDdl =
@@ -126,6 +127,10 @@ void Db::migrateSchema() {
         LOG(INFO) << "Db::migrateSchema adding column pending_rssi";
         execSimple("ALTER TABLE station ADD COLUMN pending_rssi INTEGER DEFAULT 0;");
     }
+    if (!columnExists("station", "bssid")) {
+        LOG(INFO) << "Db::migrateSchema adding column bssid";
+        execSimple("ALTER TABLE station ADD COLUMN bssid TEXT;");
+    }
 }
 
 bool Db::macExists(const Mac& mac) {
@@ -161,8 +166,8 @@ bool Db::addStation(const StationEntry& s) {
     }
 
     const char* sql =
-        "INSERT INTO station(mac, name, phoneNum, type, registered_at, updated_at) "
-        "VALUES(?1, ?2, ?3, ?4, ?5, ?5) "
+        "INSERT INTO station(mac, name, phoneNum, type, registered_at, updated_at, bssid) "
+        "VALUES(?1, ?2, ?3, ?4, ?5, ?5, ?6) "
         "ON CONFLICT DO NOTHING;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -176,6 +181,7 @@ bool Db::addStation(const StationEntry& s) {
     sqlite3_bind_text(stmt, 3, s.phoneNum.c_str(),     -1, SQLITE_TRANSIENT);
     sqlite3_bind_int (stmt, 4, s.deviceType);
     sqlite3_bind_text(stmt, 5, s.registered_at.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, s.apBssid.c_str(),       -1, SQLITE_TRANSIENT);
     bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
     LOG(INFO) << "Db::addStation done mac=" << macStr << " ok=" << ok;
@@ -231,10 +237,10 @@ bool Db::addStationPending(const StationEntry& s, int rssi) {
 
     // 신규 MAC 이면 INSERT, 이미 있으면 데이터 갱신 + 보류('register') 표시.
     const char* sql =
-        "INSERT INTO station(mac, name, phoneNum, type, registered_at, updated_at, pending_op, pending_rssi) "
-        "VALUES(?1, ?2, ?3, ?4, ?5, ?5, 'register', ?6) "
+        "INSERT INTO station(mac, name, phoneNum, type, registered_at, updated_at, pending_op, pending_rssi, bssid) "
+        "VALUES(?1, ?2, ?3, ?4, ?5, ?5, 'register', ?6, ?7) "
         "ON CONFLICT(mac) DO UPDATE SET "
-        "  name=?2, phoneNum=?3, type=?4, pending_op='register', pending_rssi=?6;";
+        "  name=?2, phoneNum=?3, type=?4, pending_op='register', pending_rssi=?6, bssid=?7;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         LOG(ERROR) << "Db::addStationPending prepare failed: " << sqlite3_errmsg(db_);
@@ -248,6 +254,7 @@ bool Db::addStationPending(const StationEntry& s, int rssi) {
     sqlite3_bind_int (stmt, 4, s.deviceType);
     sqlite3_bind_text(stmt, 5, s.registered_at.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int (stmt, 6, rssi);
+    sqlite3_bind_text(stmt, 7, s.apBssid.c_str(), -1, SQLITE_TRANSIENT);
     bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
     LOG(INFO) << "Db::addStationPending done mac=" << macStr << " ok=" << ok;
@@ -369,7 +376,7 @@ std::vector<StationEntry> Db::listPending() {
         return out;
     }
     const char* sql =
-        "SELECT mac, name, phoneNum, type, registered_at, updated_at, pending_op, pending_rssi "
+        "SELECT mac, name, phoneNum, type, registered_at, updated_at, pending_op, pending_rssi, bssid "
         "FROM station WHERE pending_op IS NOT NULL ORDER BY mac;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -386,6 +393,7 @@ std::vector<StationEntry> Db::listPending() {
         s.updated_at    = colText(stmt, 5);
         s.pendingOp    = colText(stmt, 6);
         s.rssi         = sqlite3_column_int(stmt, 7);
+        s.apBssid      = colText(stmt, 8);
         out.push_back(std::move(s));
     }
     sqlite3_finalize(stmt);
@@ -408,7 +416,7 @@ std::vector<StationEntry> Db::listStations() {
     //  prepare 가 실패해 항상 빈 목록을 반환했다. searchStations 와 동일하게 맞춘다.)
     // 삭제 보류('delete') 행은 사용자가 지운 항목이므로 목록에서 숨긴다.
     if (sqlite3_prepare_v2(db_,
-                           "SELECT mac, name, phoneNum, type, registered_at, updated_at "
+                           "SELECT mac, name, phoneNum, type, registered_at, updated_at, bssid "
                            "FROM station "
                            "WHERE pending_op IS NULL OR pending_op != 'delete' "
                            "ORDER BY mac;",
@@ -425,6 +433,7 @@ std::vector<StationEntry> Db::listStations() {
         s.deviceType         = sqlite3_column_int(stmt, 3);
         s.registered_at = colText(stmt, 4);
         s.updated_at    = colText(stmt, 5);
+        s.apBssid       = colText(stmt, 6);
         out.push_back(std::move(s));
     }
     sqlite3_finalize(stmt);
@@ -443,7 +452,7 @@ std::vector<StationEntry> Db::searchStations(const std::string& keyword) {
 
     // 삭제 보류('delete') 행은 검색 결과에서도 숨긴다.
     const char* sql =
-        "SELECT mac, name, phoneNum, type, registered_at, updated_at "
+        "SELECT mac, name, phoneNum, type, registered_at, updated_at, bssid "
         "FROM station "
         "WHERE (mac LIKE ?1 OR name LIKE ?1 OR phoneNum LIKE ?1) "
         "AND (pending_op IS NULL OR pending_op != 'delete') ORDER BY mac;";
@@ -464,6 +473,7 @@ std::vector<StationEntry> Db::searchStations(const std::string& keyword) {
         s.deviceType         = sqlite3_column_int(stmt, 3);
         s.registered_at = colText(stmt, 4);
         s.updated_at    = colText(stmt, 5);
+        s.apBssid       = colText(stmt, 6);
         out.push_back(std::move(s));
     }
     sqlite3_finalize(stmt);

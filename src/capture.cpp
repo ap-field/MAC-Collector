@@ -185,7 +185,7 @@ void CaptureWorker::run() {
                 QString::fromStdString(bi.ssid),
                 bi.channel);
         }
-        emit candidateFound(macStr, r.rssi, ts);
+        emit candidateFound(macStr, r.rssi, ts, QString::fromStdString(r.apBssid.toString()));
     }
 
     if (stopReason.isEmpty())

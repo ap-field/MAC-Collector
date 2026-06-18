@@ -39,7 +39,8 @@ public:
                         const QString& phoneNum,
                         int            deviceType,   // 1=노트북 2=핸드폰 0=기타
                         int            rssi,
-                        const QString& requestedAt); // "yyMMddTHHmmss"
+                        const QString& requestedAt, // "yyMMddTHHmmss"
+                        const QString& bssid = QString());
 
     // 시나리오 3 — 정보 변경
     void updateDevice(const QString& mac,

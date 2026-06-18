@@ -1768,7 +1768,7 @@ void KioskWindow::onPhase2Confirmed(QString macStr, QString name,
             api_->updateDevice(macStr, name, phoneNum, typeCode, now);
         } else {
             LOG(INFO) << "onPhase2Confirmed -> ApiClient::registerDevice mac=" << macStr.toStdString();
-            api_->registerDevice(macStr, name, phoneNum, typeCode, pendingRssi_, now);
+            api_->registerDevice(macStr, name, phoneNum, typeCode, pendingRssi_, now, pendingBssid_);
         }
         return;  // 응답 대기
     }
@@ -1806,6 +1806,7 @@ void KioskWindow::commitConfirmed(bool offline) {
         se.deviceType   = typeCode;
         se.registered_at = now.toStdString();
         se.updated_at    = now.toStdString();
+        se.apBssid       = pendingBssid_.toStdString();
         // offline 이면 보류('register') 상태로 저장 → 서버 복구 시 재전송.
         if (offline)
             db_->addStationPending(se, pendingRssi_);
@@ -2003,7 +2004,8 @@ void KioskWindow::trySyncPending() {
         if (s.pendingOp == "register") {
             LOG(INFO) << "trySyncPending -> registerDevice mac=" << s.mac.toString();
             api_->registerDevice(mac, name, phone, s.deviceType, s.rssi,
-                                 QString::fromStdString(s.registered_at));
+                                 QString::fromStdString(s.registered_at),
+                                 QString::fromStdString(s.apBssid));
         } else if (s.pendingOp == "delete") {
             LOG(INFO) << "trySyncPending -> deleteDevice mac=" << s.mac.toString();
             api_->deleteDevice(mac);
@@ -2016,11 +2018,12 @@ void KioskWindow::trySyncPending() {
 }
 
 // ── 신규 MAC 감지: 로컬 DB 중복 확인 ──
-void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp)
+void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp, QString apBssid)
 {
     LOG(INFO) << "KioskWindow::onCandidateFound mac=" << macStr.toStdString()
               << " rssi=" << rssi << " ts=" << timestamp.toStdString();
     pendingRssi_ = rssi;
+    pendingBssid_ = apBssid;
 
     bool exists = db_->macExists(Mac(macStr.toUtf8().constData()));
 

@@ -38,7 +38,7 @@ public slots:
     void run();
 
 signals:
-    void candidateFound(QString macStr, int rssi, QString timestamp);
+    void candidateFound(QString macStr, int rssi, QString timestamp, QString apBssid);
     void errorOccurred(QString msg);
     // pcap 오픈·필터 설정까지 성공해 캡처 루프에 진입했을 때 emit.
     // 최초 시작과 재시도 성공을 UI 가 동일하게 처리(🟢 수집 중)하도록 알린다.

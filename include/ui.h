@@ -205,7 +205,7 @@ signals:
     void captureRetryRequested();
 
 public slots:
-    void onCandidateFound(QString macStr, int rssi, QString timestamp);
+    void onCandidateFound(QString macStr, int rssi, QString timestamp, QString apBssid);
     void onBeaconFound(QString bssid, QString ssid, int channel);
     void onCaptureError(QString msg);
     // 캡처(최초/재시도)가 성공적으로 시작됐을 때 → 🟢 수집 중 복귀, 재시도 버튼 숨김
@@ -270,6 +270,7 @@ private:
     QString pendingMac_;
     QString pendingTimestamp_;
     int     pendingRssi_      = 0;
+    QString pendingBssid_;
     // onPhase2Confirmed → 비동기 API 응답 콜백에서 로컬 캐시에 쓰기 위해 보관
     QString pendingName_;
     QString pendingPhone_;
