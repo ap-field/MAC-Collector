@@ -158,14 +158,14 @@ fi
 
 # sudoers NOPASSWD 규칙:
 #   - setcap: run.sh가 재빌드 후 capability를 비밀번호 없이 재적용
-#   - iwconfig: cap_net_admin은 자식 프로세스에 상속되지 않으므로 sudo -n 으로 실행
+#   - iw: cap_net_admin은 자식 프로세스에 상속되지 않으므로 sudo -n 으로 실행
 SUDOERS_FILE="/etc/sudoers.d/mac-collector"
 SETCAP_BIN="$(command -v setcap 2>/dev/null || echo /usr/sbin/setcap)"
-IWCONFIG_BIN="$(command -v iwconfig 2>/dev/null || echo /usr/sbin/iwconfig)"
+IW_BIN="$(command -v iw 2>/dev/null || echo /usr/sbin/iw)"
 cat > "$SUDOERS_FILE" << EOF
 # MAC-Collector: 비밀번호 없이 capability 재적용 및 채널 설정 허용
 $REAL_USER ALL=(root) NOPASSWD: $SETCAP_BIN
-$REAL_USER ALL=(root) NOPASSWD: $IWCONFIG_BIN
+$REAL_USER ALL=(root) NOPASSWD: $IW_BIN
 EOF
 chmod 440 "$SUDOERS_FILE"
 # visudo -c로 문법 검증

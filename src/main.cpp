@@ -3,11 +3,11 @@
 #include "ui.h"
 #include "app.h"
 #include "api_client.h"
+#include "channel_hopper.h"
 
 #include <glog/logging.h>
 #include <QApplication>
 #include <QMessageBox>
-#include <QProcess>
 #include <QThread>
 #include <csignal>
 #include <qfileinfo.h>
@@ -44,22 +44,15 @@ int main(int argc, char** argv) {
               << " channels=" << channels.size() << " rssi=" << rssi
               << " dbPath=" << dbPath.toStdString();
 
-    if (!channels.isEmpty()) {
-        const int ch = channels.first();
-        LOG(INFO) << "setting initial channel via iwconfig iface=" << iface.toStdString()
-                  << " channel=" << ch;
-        QProcess proc;
+    ChannelHopConfig hopCfg;
+    for (int ch : channels) hopCfg.channels.push_back(ch);
 
-        proc.start("sudo", {"-n", "iwconfig", iface, "channel", QString::number(ch)});
-        if (!proc.waitForFinished(3000)) {
-            LOG(ERROR) << "iwconfig channel set failed iface=" << iface.toStdString()
-                       << " channel=" << ch;
-            QMessageBox::warning(nullptr, "채널 설정 실패",
-                                 QString("iwconfig %1 channel %2 실패\n"
-                                         "모니터 모드 및 권한을 확인하세요.")
-                                     .arg(iface).arg(ch));
-        }
+    ChannelHopper hopper(iface.toStdString(), hopCfg);
+    if(!hopper.start()) {
+        QMessageBox::warning(nullptr, "채널 호핑 오류","채널 목록이 비어 있어 채널 호핑이 불가능합니다");
+        return 1;
     }
+    LOG(INFO) << "channel hopper started: " << hopper.summary();
 
     Db db;
     LOG(INFO) << "opening DB path=" << QFileInfo(dbPath).absoluteFilePath().toStdString();
@@ -129,6 +122,7 @@ int main(int argc, char** argv) {
 
     QObject::connect(&app, &QCoreApplication::aboutToQuit, [&]() {
         LOG(INFO) << "aboutToQuit: stopping capture worker";
+        hopper.stop();
         worker->requestStop();
         thread.quit();
         if (!thread.wait(3000)) {

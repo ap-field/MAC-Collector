@@ -16,6 +16,10 @@ qt_add_executable(mac-collector
     include/parser.h
     include/radiotaphdr.h
     include/ui.h
+    include/api_client.h
+    include/app.h
+    include/channel_hopper.h
+    include/net.h
 
     src/capture.cpp
     src/db.cpp
@@ -23,13 +27,13 @@ qt_add_executable(mac-collector
     src/main.cpp
     src/parser.cpp
     src/ui.cpp
+    src/app.cpp
+    src/api_client.cpp
+    src/channel_hopper.cpp
+    src/net.cpp
 
     resources.qrc
     setup.sh
-    src/api_client.cpp
-    include/api_client.h
-    include/app.h
-    src/app.cpp
     run.sh
 )
 

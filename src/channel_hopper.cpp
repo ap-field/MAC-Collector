@@ -1,9 +1,3 @@
-/* channel_hopper.cpp — ChannelHopper 구현.
-   전용 스레드가 config.channels 를 순서대로 돈다. 각 채널마다 net.cpp 의 set_channel(iw)을
-   불러 채널을 맞추고(=기존 채널 변경 함수 재사용), 지금 채널을 currentChannel 에 공개한다.
-   dwell(머무는 시간)만큼 자고 다음 채널로. 채널 변경이 잠깐 실패해도 다음 바퀴에 자동 재시도.
-   stop()은 condition_variable 로 dwell 잠을 즉시 깨운다. 종료 신호(running())도 같이 본다. */
-
 #include "channel_hopper.h"
 #include "net.h"     // set_channel, running()
 
