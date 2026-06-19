@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
               << " dbPath=" << dbPath.toStdString();
 
     ChannelHopConfig hopCfg;
-    for (int ch : channels) hopCfg.channels.push_back(ch);
+    hopCfg.channels = std::vector<int>(channels.begin(), channels.end());
 
     ChannelHopper hopper(iface.toStdString(), hopCfg);
     if(!hopper.start()) {
@@ -106,8 +106,6 @@ int main(int argc, char** argv) {
                      worker,  &CaptureWorker::run);
     QObject::connect(worker,  &CaptureWorker::candidateFound,
                      &win,    &KioskWindow::onCandidateFound);
-    QObject::connect(worker,  &CaptureWorker::beaconFound,
-                     &win,    &KioskWindow::onBeaconFound);
     QObject::connect(worker,  &CaptureWorker::errorOccurred,
                      &win,    &KioskWindow::onCaptureError);
     QObject::connect(worker,  &CaptureWorker::captureStarted,

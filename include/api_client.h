@@ -24,6 +24,7 @@ struct DeviceRecord {
     int     deviceType = 0;       // 0=기타 1=노트북 2=핸드폰 3=태블릿 4=IoT
     QString registeredAt;   // "yyMMddTHHmmss"
     QString updatedAt;      // 없으면 빈 문자열
+    QString bssid;          // 감지 당시 연결 AP — 없으면 빈 문자열
 };
 
 class ApiClient : public QObject {
@@ -64,8 +65,14 @@ public:
                      const QString& ssid,
                      int            ch);
 
+    void fetchOneAP(const QString& bssid);
 
+    void updateAP(const QString& bssid,
+                  int            type,
+                  const QString& ssid,
+                  int            ch);
 
+    void deleteAP(const QString& bssid);
 
 signals:
     void registerSuccess(QString mac);
@@ -83,6 +90,15 @@ signals:
 
     void apListFetched(QVector<ApRecord> aps);
     void apListFailed(QString reason);
+
+    void apFetched(ApRecord ap);
+    void apFetchFailed(QString reason);
+
+    void updateAPSuccess(QString bssid);
+    void updateAPFailed(QString bssid, QString reason, bool networkError);
+
+    void deleteAPSuccess(QString bssid);
+    void deleteAPFailed(QString bssid, QString reason, bool networkError);
 
     // 조회 성공: 등록된 디바이스 전체 정보 반환
     void deviceListFetched(QVector<DeviceRecord> devices);

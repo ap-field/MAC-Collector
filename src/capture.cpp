@@ -113,9 +113,9 @@ void CaptureWorker::run() {
     while (!stop_.load()) {
         pcap_pkthdr*   hdr  = nullptr;
         const uint8_t* data = nullptr;
-        LOG(INFO) << "bef pcap_next_ex";
+        //LOG(INFO) << "bef pcap_next_ex";
         int rc = pcap_next_ex(pcap_, &hdr, &data);
-        LOG(INFO) << "aft pcap_next_ex" << rc;
+        //LOG(INFO) << "aft pcap_next_ex b" << rc;
         if (rc == 0) {
             // 패킷 없음(timeout) — 약 1초(100ms × 10)마다 인터페이스 상태 확인
             if (++timeoutCount >= 10) {
@@ -177,15 +177,14 @@ void CaptureWorker::run() {
                   << " 경유=" << kindName
                   << " RSSI=" << r.rssi;
 
+        QString apSsid;
+        int     apCh = 0;
         auto it = beaconCache_.find(r.apBssid);
-        if (it != beaconCache_.end() && db_->macExists(r.addr2)) {
-            const auto& bi = it->second;
-            emit beaconFound(
-                QString::fromStdString(bi.bssid.toString()),
-                QString::fromStdString(bi.ssid),
-                bi.channel);
+        if (it != beaconCache_.end()) {
+            apSsid = QString::fromStdString(it->second.ssid);
+            apCh   = it->second.channel;
         }
-        emit candidateFound(macStr, r.rssi, ts, QString::fromStdString(r.apBssid.toString()));
+        emit candidateFound(macStr, r.rssi, ts, QString::fromStdString(r.apBssid.toString()), apSsid, apCh);
     }
 
     if (stopReason.isEmpty())

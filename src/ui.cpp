@@ -982,9 +982,9 @@ AdminPage::AdminPage(Db* db, ApiClient* api, QWidget* parent)
     topRow->addWidget(backBtn_);
     root->addLayout(topRow);
 
-    table_ = new QTableWidget(0, 5);
+    table_ = new QTableWidget(0, 6);
     table_->setHorizontalHeaderLabels(
-        {"MAC", "이름", "전화번호", "기기", "반영일"});
+        {"MAC", "이름", "전화번호", "기기", "반영일", "BSSID"});
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->horizontalHeader()->setHighlightSections(false);
     table_->verticalHeader()->setVisible(false);
@@ -1027,8 +1027,10 @@ AdminPage::AdminPage(Db* db, ApiClient* api, QWidget* parent)
     auto* apBtnRow = new QHBoxLayout();
     changeTypeBtn_ = mkBtn("CA / EA 전환", "#2563EB", "#1D4ED8");
     removeApBtn_   = mkBtn("AP 제거",      "#DC2626", "#B91C1C");
+    addApBtn_      = mkBtn("AP 수동 등록", "#059669", "#047857");
     apBtnRow->addWidget(changeTypeBtn_);
     apBtnRow->addWidget(removeApBtn_);
+    apBtnRow->addWidget(addApBtn_);
     apBtnRow->addStretch(1);
     apVL->addLayout(apBtnRow);
 
@@ -1044,6 +1046,7 @@ AdminPage::AdminPage(Db* db, ApiClient* api, QWidget* parent)
     connect(backBtn_,    &QPushButton::clicked,       this, &AdminPage::onBack);
     connect(changeTypeBtn_, &QPushButton::clicked,    this, &AdminPage::onChangeApType);
     connect(removeApBtn_,   &QPushButton::clicked,    this, &AdminPage::onRemoveAp);
+    connect(addApBtn_,      &QPushButton::clicked,    this, &AdminPage::onAddAp);
 
     // 서버(API) 목록 응답을 직접 받아 테이블을 서버 우선으로 갱신한다.
     if (api_) {
@@ -1051,15 +1054,25 @@ AdminPage::AdminPage(Db* db, ApiClient* api, QWidget* parent)
                 this, &AdminPage::onServerListFetched);
         connect(api_, &ApiClient::deviceListFailed,
                 this, &AdminPage::onServerListFailed);
+        connect(api_, &ApiClient::apListFetched,
+                this, [this](QVector<ApRecord>) { refreshAps(); });
+        connect(api_, &ApiClient::registerAPsSuccess,
+                this, [this]() { refreshAps(); });
+        connect(api_, &ApiClient::registerAPsFailed,
+                this, [this]() {
+                    LOG(WARNING) << "AdminPage: registerAPs failed";
+                    QMessageBox::warning(this, "AP 등록 실패", "서버에 AP를 등록하지 못했습니다.");
+                });
     }
 }
 
 void AdminPage::refresh() {
     // 관리자 페이지 진입 시 서버 목록을 우선적으로 다시 받아온다.
-    // 응답이 도착하면 onServerListFetched 에서 테이블이 서버 데이터로 갱신된다.
+    // 응답이 도착하면 onServerListFetched / apListFetched 에서 테이블이 서버 데이터로 갱신된다.
     if (api_) {
-        LOG(INFO) << "AdminPage::refresh fetch server device list";
+        LOG(INFO) << "AdminPage::refresh fetch server device/ap list";
         api_->fetchDeviceList();
+        api_->fetchAPs();
     }
     // 응답 대기 중에도 현재 보유한(서버) 데이터로 즉시 렌더한다.
     reloadTable("");
@@ -1147,6 +1160,7 @@ void AdminPage::reloadTable(const QString& keyword) {
             se.phoneNum     = d.phoneNum.toStdString();
             se.deviceType   = d.deviceType;
             se.registered_at = d.registeredAt.toStdString();
+            se.apBssid       = d.bssid.toStdString();
             if (matches(se)) list.push_back(se);
         }
         // 서버에는 아직 없는 로컬 전용 레코드도 누락 없이 함께 표시한다.
@@ -1177,9 +1191,10 @@ void AdminPage::reloadTable(const QString& keyword) {
         table_->setItem(row, 2, mkItem(QString::fromStdString(s.phoneNum)));
         table_->setItem(row, 3, mkItem(QString::fromStdString(Db::typeCodeToString(s.deviceType))));
         table_->setItem(row, 4, mkItem(fmtStationDate(s.registered_at)));
+        table_->setItem(row, 5, mkItem(QString::fromStdString(s.apBssid)));
     }
     table_->ensurePolished();
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 5; ++i)
         table_->resizeColumnToContents(i);
 }
 
@@ -1369,6 +1384,61 @@ void AdminPage::onRemoveAp() {
     if (btn != QMessageBox::Yes) return;
     LOG(INFO) << "AdminPage::onRemoveAp bssid=" << bssid.toStdString();
     db_->removeAp(bssid.toStdString());
+    refreshAps();
+}
+
+void AdminPage::onAddAp() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("AP 수동 등록");
+    dlg.setMinimumWidth(320);
+
+    auto* form    = new QFormLayout(&dlg);
+    auto* bssidEdit = new QLineEdit(&dlg);
+    auto* ssidEdit  = new QLineEdit(&dlg);
+    auto* chEdit   = new QLineEdit(&dlg);
+    auto* typeCombo = new QComboBox(&dlg);
+
+    bssidEdit->setPlaceholderText("AA:BB:CC:DD:EE:FF");
+    chEdit->setPlaceholderText("1");
+    typeCombo->addItem("CA", 0);
+    typeCombo->addItem("EA", 1);
+
+    form->addRow("BSSID",  bssidEdit);
+    form->addRow("SSID",   ssidEdit);
+    form->addRow("채널",   chEdit);
+    form->addRow("구분",   typeCombo);
+
+    auto* btns = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    form->addRow(btns);
+    connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    QString bssid = bssidEdit->text().trimmed().toUpper();
+    QString ssid  = ssidEdit->text().trimmed();
+    int     ch    = chEdit->text().toInt();
+    int     type  = typeCombo->currentData().toInt();
+
+    if (bssid.isEmpty()) {
+        QMessageBox::warning(this, "입력 오류", "BSSID를 입력해 주세요.");
+        return;
+    }
+    if (db_->apExists(bssid.toStdString())) {
+        QMessageBox::warning(this, "중복", "이미 등록된 BSSID입니다.");
+        return;
+    }
+
+    ApEntry ap;
+    ap.bssid = bssid.toStdString();
+    ap.ssid  = ssid.toStdString();
+    ap.ch    = ch;
+    ap.type  = type;
+    LOG(INFO) << "AdminPage::onAddAp bssid=" << ap.bssid << " type=" << type;
+    db_->addAp(ap);
+    if (api_)
+        api_->registerAPs(bssid, type, ssid, ch);
     refreshAps();
 }
 
@@ -1812,6 +1882,18 @@ void KioskWindow::commitConfirmed(bool offline) {
             db_->addStationPending(se, pendingRssi_);
         else
             db_->addStation(se);
+
+        // station 등록 시 연결된 AP도 함께 저장 (미등록 AP일 때만)
+        if (!pendingBssid_.isEmpty() && !db_->apExists(pendingBssid_.toStdString())) {
+            ApEntry ap;
+            ap.bssid = pendingBssid_.toStdString();
+            ap.ssid  = pendingSsid_.toStdString();
+            ap.ch    = pendingCh_;
+            ap.type  = 0;
+            db_->addAp(ap);
+            if (api_)
+                api_->registerAPs(pendingBssid_, ap.type, pendingSsid_, pendingCh_);
+        }
     }
 
     // DB 저장 직후 Phase1 테이블 갱신:
@@ -1976,6 +2058,7 @@ void KioskWindow::onDeviceListFetched(QVector<DeviceRecord> devices) {
             se.deviceType   = d.deviceType;
             se.registered_at = d.registeredAt.toStdString();
             se.updated_at    = d.updatedAt.toStdString();
+            se.apBssid       = d.bssid.toStdString();
             db_->addStation(se);
         }
     }
@@ -2018,12 +2101,14 @@ void KioskWindow::trySyncPending() {
 }
 
 // ── 신규 MAC 감지: 로컬 DB 중복 확인 ──
-void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp, QString apBssid)
+void KioskWindow::onCandidateFound(QString macStr, int rssi, QString timestamp, QString apBssid, QString apSsid, int apCh)
 {
     LOG(INFO) << "KioskWindow::onCandidateFound mac=" << macStr.toStdString()
               << " rssi=" << rssi << " ts=" << timestamp.toStdString();
-    pendingRssi_ = rssi;
+    pendingRssi_  = rssi;
     pendingBssid_ = apBssid;
+    pendingSsid_  = apSsid;
+    pendingCh_    = apCh;
 
     bool exists = db_->macExists(Mac(macStr.toUtf8().constData()));
 
@@ -2093,21 +2178,6 @@ void KioskWindow::updateDeviceCount(int count) {
     deviceCountLabel_->setText(QString("감지: %1 개").arg(count));
 }
 
-void KioskWindow::onBeaconFound(QString bssid, QString ssid, int channel) {
-    std::string bssidStr = bssid.toStdString();
-    if (!db_->apExists(bssidStr)) {
-        ApEntry ap;
-        ap.bssid = bssidStr;
-        ap.ssid  = ssid.toStdString();
-        ap.ch    = channel;
-        ap.type  = 0;   // 기본 미분류(CA)
-        LOG(INFO) << "KioskWindow::onBeaconFound new AP bssid=" << bssidStr
-                  << " ssid=" << ap.ssid << " ch=" << channel;
-        db_->addAp(ap);
-        if (api_)
-            api_->registerAPs(bssid, ap.type, ssid, channel);
-    }
-}
 
 void KioskWindow::onApListFetched(QVector<ApRecord> aps) {
     LOG(INFO) << "KioskWindow::onApListFetched count=" << aps.size();

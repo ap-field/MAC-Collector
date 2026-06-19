@@ -32,8 +32,7 @@ void ApiClient::registerDevice(const QString& mac,
     body["type"]         = deviceType;
     body["rssi"]         = rssi;
     body["requested_at"] = requestedAt;
-    if (!bssid.isEmpty())
-        body["bssid"] = bssid;
+    body["bssid"]        = bssid;
 
     const QString url = baseUrl_ + "/v1/devices/register";
     LOG(INFO) << "ApiClient::registerDevice POST " << url.toStdString()
@@ -201,6 +200,7 @@ void ApiClient::fetchDeviceList()
             d.phoneNum     = o["phone_num"].toString();
             d.deviceType   = o["type"].toInt();
             d.registeredAt = o["request_at"].toString();
+            d.bssid        = o["bssid"].toString().toUpper();
             devices.push_back(d);
         }
         LOG(INFO) << "ApiClient::fetchDeviceList success count=" << devices.size();
@@ -272,5 +272,110 @@ void ApiClient::fetchAPs()
         }
         LOG(INFO) << "ApiClient::fetchAPs success count=" << aps.size();
         emit apListFetched(aps);
+    });
+}
+
+// GET /api/v1/aps/{bssid}
+void ApiClient::fetchOneAP(const QString& bssid)
+{
+    const QString encodedBssid = QString::fromUtf8(QUrl::toPercentEncoding(bssid));
+    const QString url = baseUrl_ + "/api/v1/aps/" + encodedBssid;
+    LOG(INFO) << "ApiClient::fetchOneAP GET " << url.toStdString();
+
+    QNetworkRequest req((QUrl(url)));
+    req.setRawHeader("x-api-key", apiKey_.toUtf8());
+
+    QNetworkReply* reply = nam_->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, bssid]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            LOG(ERROR) << "ApiClient::fetchOneAP network error bssid=" << bssid.toStdString()
+                       << " err=" << reply->errorString().toStdString();
+            emit apFetchFailed(reply->errorString());
+            return;
+        }
+        QJsonObject data = QJsonDocument::fromJson(reply->readAll()).object()["data"].toObject();
+        ApRecord ap;
+        ap.bssid   = data["bssid"].toString().toUpper();
+        ap.type    = data["type"].toInt();
+        ap.ssid    = data["ssid"].toString();
+        ap.channel = data["channel"].toInt();
+        LOG(INFO) << "ApiClient::fetchOneAP success bssid=" << bssid.toStdString();
+        emit apFetched(ap);
+    });
+}
+
+// POST /api/v1/aps/update
+void ApiClient::updateAP(const QString& bssid,
+                         int            type,
+                         const QString& ssid,
+                         int            ch)
+{
+    QJsonObject body;
+    body["bssid"] = bssid;
+    body["type"]  = type;
+    body["ssid"]  = ssid;
+    body["ch"]    = ch;
+
+    const QString url = baseUrl_ + "/api/v1/aps/update";
+    LOG(INFO) << "ApiClient::updateAP POST " << url.toStdString()
+              << " bssid=" << bssid.toStdString();
+
+    QNetworkRequest req((QUrl(url)));
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    req.setRawHeader("x-api-key", apiKey_.toUtf8());
+
+    QNetworkReply* reply = nam_->post(req, QJsonDocument(body).toJson());
+    connect(reply, &QNetworkReply::finished, this, [this, reply, bssid]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            LOG(ERROR) << "ApiClient::updateAP network error bssid=" << bssid.toStdString()
+                       << " err=" << reply->errorString().toStdString();
+            emit updateAPFailed(bssid, reply->errorString(), /*networkError=*/true);
+            return;
+        }
+        QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();
+        if (resp["code"].toInt() == 200) {
+            LOG(INFO) << "ApiClient::updateAP success bssid=" << bssid.toStdString();
+            emit updateAPSuccess(bssid);
+        } else {
+            LOG(WARNING) << "ApiClient::updateAP failed bssid=" << bssid.toStdString()
+                         << " code=" << resp["code"].toInt()
+                         << " message=" << resp["message"].toString().toStdString();
+            emit updateAPFailed(bssid, resp["message"].toString(), /*networkError=*/false);
+        }
+    });
+}
+
+// DELETE /api/v1/aps/{bssid}
+void ApiClient::deleteAP(const QString& bssid)
+{
+    const QString encodedBssid = QString::fromUtf8(QUrl::toPercentEncoding(bssid));
+    const QString url = baseUrl_ + "/api/v1/aps/" + encodedBssid;
+    LOG(INFO) << "ApiClient::deleteAP DELETE " << url.toStdString()
+              << " bssid=" << bssid.toStdString();
+
+    QNetworkRequest req((QUrl(url)));
+    req.setRawHeader("x-api-key", apiKey_.toUtf8());
+
+    QNetworkReply* reply = nam_->deleteResource(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, bssid]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            LOG(ERROR) << "ApiClient::deleteAP network error bssid=" << bssid.toStdString()
+                       << " err=" << reply->errorString().toStdString();
+            emit deleteAPFailed(bssid, reply->errorString(), /*networkError=*/true);
+            return;
+        }
+        QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();
+        if (resp["code"].toInt() == 200) {
+            LOG(INFO) << "ApiClient::deleteAP success bssid=" << bssid.toStdString();
+            emit deleteAPSuccess(bssid);
+        } else {
+            LOG(WARNING) << "ApiClient::deleteAP failed bssid=" << bssid.toStdString()
+                         << " code=" << resp["code"].toInt()
+                         << " message=" << resp["message"].toString().toStdString();
+            emit deleteAPFailed(bssid, resp["message"].toString(), /*networkError=*/false);
+        }
     });
 }

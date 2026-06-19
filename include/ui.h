@@ -165,6 +165,7 @@ private slots:
     void onBack();
     void onChangeApType();
     void onRemoveAp();
+    void onAddAp();
     // ── 서버(API) 목록 응답 처리: 관리자 테이블을 서버 데이터 우선으로 갱신 ──
     void onServerListFetched(QVector<DeviceRecord> devices);
     void onServerListFailed(QString reason);
@@ -182,6 +183,7 @@ private:
     QTableWidget* apTable_      = nullptr;
     QPushButton*  changeTypeBtn_ = nullptr;
     QPushButton*  removeApBtn_   = nullptr;
+    QPushButton*  addApBtn_      = nullptr;
 
     // 서버(API) /lists 스냅샷. 비어 있지 않고 serverDataReady_ 이면 테이블에 우선 표시한다.
     QVector<DeviceRecord> serverDevices_;
@@ -205,8 +207,7 @@ signals:
     void captureRetryRequested();
 
 public slots:
-    void onCandidateFound(QString macStr, int rssi, QString timestamp, QString apBssid);
-    void onBeaconFound(QString bssid, QString ssid, int channel);
+    void onCandidateFound(QString macStr, int rssi, QString timestamp, QString apBssid, QString apSsid, int apCh);
     void onCaptureError(QString msg);
     // 캡처(최초/재시도)가 성공적으로 시작됐을 때 → 🟢 수집 중 복귀, 재시도 버튼 숨김
     void onCaptureStarted();
@@ -271,6 +272,8 @@ private:
     QString pendingTimestamp_;
     int     pendingRssi_      = 0;
     QString pendingBssid_;
+    QString pendingSsid_;
+    int     pendingCh_    = 0;
     // onPhase2Confirmed → 비동기 API 응답 콜백에서 로컬 캐시에 쓰기 위해 보관
     QString pendingName_;
     QString pendingPhone_;
