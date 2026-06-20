@@ -9,6 +9,20 @@
 #include <QJsonArray>
 #include <QUrl>
 
+// HTTP 오류 응답(4xx/5xx)과 연결 자체 실패를 구분한다.
+// httpStatus > 0 이면 서버가 응답한 것이므로 networkError=false, JSON 바디에서 메시지를 읽는다.
+// httpStatus == 0 이면 연결 실패이므로 networkError=true, Qt errorString을 그대로 반환한다.
+static std::pair<QString, bool> parseHttpError(QNetworkReply* reply) {
+    int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (httpStatus > 0) {
+        QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();
+        QString msg = resp["message"].toString();
+        if (msg.isEmpty()) msg = reply->errorString();
+        return {msg, false};
+    }
+    return {reply->errorString(), true};
+}
+
 ApiClient::ApiClient(const QString& baseUrl, const QString& apiKey, QObject* parent)
     : QObject(parent),
     nam_(new QNetworkAccessManager(this)),
@@ -42,16 +56,18 @@ void ApiClient::registerDevice(const QString& mac,
     QNetworkRequest req((QUrl(url)));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");//before post, after reuqest
     req.setRawHeader("x-api-key", apiKey_.toUtf8());   // 서버 인증 헤더
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = nam_->post(req, QJsonDocument(body).toJson());
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, mac]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
-            // 연결 자체 실패(서버 다운/네트워크 단절) → networkError=true 로 알림.
-            LOG(ERROR) << "ApiClient::registerDevice network error mac="
-                       << mac.toStdString() << " err=" << reply->errorString().toStdString();
-            emit registerFailed(mac, reply->errorString(), /*networkError=*/true);
+            auto [msg, netErr] = parseHttpError(reply);
+            LOG(ERROR) << "ApiClient::registerDevice error mac=" << mac.toStdString()
+                       << " networkError=" << netErr << " msg=" << msg.toStdString();
+            emit registerFailed(mac, msg, netErr);
             return;
         }
         QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();
@@ -94,16 +110,18 @@ void ApiClient::updateDevice(const QString& mac,
     QNetworkRequest req((QUrl(url)));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     req.setRawHeader("x-api-key", apiKey_.toUtf8());   // 서버 인증 헤더
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = nam_->post(req, QJsonDocument(body).toJson());
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, mac]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
-            // 연결 자체 실패(서버 다운/네트워크 단절) → networkError=true 로 알림.
-            LOG(ERROR) << "ApiClient::updateDevice network error mac="
-                       << mac.toStdString() << " err=" << reply->errorString().toStdString();
-            emit updateFailed(mac, reply->errorString(), /*networkError=*/true);
+            auto [msg, netErr] = parseHttpError(reply);
+            LOG(ERROR) << "ApiClient::updateDevice error mac=" << mac.toStdString()
+                       << " networkError=" << netErr << " msg=" << msg.toStdString();
+            emit updateFailed(mac, msg, netErr);
             return;
         }
         QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();
@@ -137,16 +155,18 @@ void ApiClient::deleteDevice(const QString& mac)
 
     QNetworkRequest req((QUrl(url)));
     req.setRawHeader("x-api-key", apiKey_.toUtf8());   // 서버 인증 헤더
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = nam_->deleteResource(req);
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, mac]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
-            // 연결 자체 실패(서버 다운/네트워크 단절) → networkError=true 로 알림.
-            LOG(ERROR) << "ApiClient::deleteDevice network error mac="
-                       << mac.toStdString() << " err=" << reply->errorString().toStdString();
-            emit deleteFailed(mac, reply->errorString(), /*networkError=*/true);
+            auto [msg, netErr] = parseHttpError(reply);
+            LOG(ERROR) << "ApiClient::deleteDevice error mac=" << mac.toStdString()
+                       << " networkError=" << netErr << " msg=" << msg.toStdString();
+            emit deleteFailed(mac, msg, netErr);
             return;
         }
         QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();
@@ -174,14 +194,19 @@ void ApiClient::fetchDeviceList()
 
     QNetworkRequest req((QUrl(url)));
     req.setRawHeader("x-api-key", apiKey_.toUtf8());   // 서버 인증 헤더
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = nam_->get(req);
 
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
+            //테스트용 http status 확인
+            int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             LOG(ERROR) << "ApiClient::fetchDeviceList network error err="
-                       << reply->errorString().toStdString();
+                       << reply->errorString().toStdString()
+                       << " httpStatus=" << httpStatus;// http status checking code
             emit deviceListFailed(reply->errorString());
             return;
         }
@@ -227,13 +252,16 @@ void ApiClient::registerAPs(const QString& bssid,
     QNetworkRequest req((QUrl(url)));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     req.setRawHeader("x-api-key", apiKey_.toUtf8());
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = nam_->post(req, QJsonDocument(body).toJson());
     connect(reply, &QNetworkReply::finished, this, [this, reply, bssid]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
-            LOG(ERROR) << "ApiClient::registerAPs network error bssid=" << bssid.toStdString()
-                       << " err=" << reply->errorString().toStdString();
+            auto [msg, netErr] = parseHttpError(reply);
+            LOG(ERROR) << "ApiClient::registerAPs error bssid=" << bssid.toStdString()
+                       << " networkError=" << netErr << " msg=" << msg.toStdString();
             emit registerAPsFailed();
             return;
         }
@@ -249,6 +277,8 @@ void ApiClient::fetchAPs()
 
     QNetworkRequest req((QUrl(url)));
     req.setRawHeader("x-api-key", apiKey_.toUtf8());
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = nam_->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -261,13 +291,13 @@ void ApiClient::fetchAPs()
         }
         QJsonObject data = QJsonDocument::fromJson(reply->readAll()).object()["data"].toObject();
         QVector<ApRecord> aps;
-        for (const QString& ssid : data.keys()) {
-            QJsonObject o = data[ssid].toObject();
+        for (const QString& bssid : data.keys()) {
+            QJsonObject o = data[bssid].toObject();
             ApRecord ap;
-            ap.ssid    = ssid;
-            ap.bssid   = o["bssid"].toString().toUpper();
+            ap.bssid   = bssid.toUpper();
+            ap.ssid    = o["ssid"].toString();
             ap.type    = o["type"].toInt();
-            ap.channel = o["channel"].toInt();
+            ap.channel = o["ch"].toInt();
             aps.push_back(ap);
         }
         LOG(INFO) << "ApiClient::fetchAPs success count=" << aps.size();
@@ -284,6 +314,8 @@ void ApiClient::fetchOneAP(const QString& bssid)
 
     QNetworkRequest req((QUrl(url)));
     req.setRawHeader("x-api-key", apiKey_.toUtf8());
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = nam_->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply, bssid]() {
@@ -299,7 +331,7 @@ void ApiClient::fetchOneAP(const QString& bssid)
         ap.bssid   = data["bssid"].toString().toUpper();
         ap.type    = data["type"].toInt();
         ap.ssid    = data["ssid"].toString();
-        ap.channel = data["channel"].toInt();
+        ap.channel = data["ch"].toInt();
         LOG(INFO) << "ApiClient::fetchOneAP success bssid=" << bssid.toStdString();
         emit apFetched(ap);
     });
@@ -324,14 +356,17 @@ void ApiClient::updateAP(const QString& bssid,
     QNetworkRequest req((QUrl(url)));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     req.setRawHeader("x-api-key", apiKey_.toUtf8());
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = nam_->post(req, QJsonDocument(body).toJson());
     connect(reply, &QNetworkReply::finished, this, [this, reply, bssid]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
+            auto [msg,netErr]=parseHttpError(reply);
             LOG(ERROR) << "ApiClient::updateAP network error bssid=" << bssid.toStdString()
-                       << " err=" << reply->errorString().toStdString();
-            emit updateAPFailed(bssid, reply->errorString(), /*networkError=*/true);
+                       << "network err=" << netErr << "msg = " << msg.toStdString() ;
+            emit updateAPFailed(bssid, msg, netErr);
             return;
         }
         QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();
@@ -357,14 +392,17 @@ void ApiClient::deleteAP(const QString& bssid)
 
     QNetworkRequest req((QUrl(url)));
     req.setRawHeader("x-api-key", apiKey_.toUtf8());
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = nam_->deleteResource(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply, bssid]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
+            auto [msg, netErr] = parseHttpError(reply);
             LOG(ERROR) << "ApiClient::deleteAP network error bssid=" << bssid.toStdString()
-                       << " err=" << reply->errorString().toStdString();
-            emit deleteAPFailed(bssid, reply->errorString(), /*networkError=*/true);
+                       << " err=" << "networkError = " << "msg = " << msg.toStdString();
+            emit deleteAPFailed(bssid, msg, netErr);
             return;
         }
         QJsonObject resp = QJsonDocument::fromJson(reply->readAll()).object();

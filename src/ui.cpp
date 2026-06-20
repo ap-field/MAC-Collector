@@ -1055,13 +1055,47 @@ AdminPage::AdminPage(Db* db, ApiClient* api, QWidget* parent)
         connect(api_, &ApiClient::deviceListFailed,
                 this, &AdminPage::onServerListFailed);
         connect(api_, &ApiClient::apListFetched,
-                this, [this](QVector<ApRecord>) { refreshAps(); });
+                this, [this](QVector<ApRecord> aps) {
+                    for (const ApRecord& ap : aps) {
+                        ApEntry entry;
+                        entry.bssid = ap.bssid.toStdString();
+                        entry.ssid  = ap.ssid.toStdString();
+                        entry.type  = ap.type;
+                        entry.ch    = ap.channel;
+                        db_->addAp(entry);
+                    }
+                    refreshAps();
+                });
         connect(api_, &ApiClient::registerAPsSuccess,
                 this, [this]() { refreshAps(); });
         connect(api_, &ApiClient::registerAPsFailed,
                 this, [this]() {
                     LOG(WARNING) << "AdminPage: registerAPs failed";
                     QMessageBox::warning(this, "AP 등록 실패", "서버에 AP를 등록하지 못했습니다.");
+                });
+        connect(api_, &ApiClient::updateAPSuccess,
+                this, [this](const QString& bssid) { api_->fetchOneAP(bssid); });
+        connect(api_, &ApiClient::updateAPFailed,
+                this, [this](const QString&, const QString& msg, bool) {
+                    LOG(WARNING) << "AdminPage: updateAP failed " << msg.toStdString();
+                    QMessageBox::warning(this, "AP 수정 실패", msg);
+                });
+        connect(api_, &ApiClient::apFetched,
+                this, [this](ApRecord ap) {
+                    ApEntry entry;
+                    entry.bssid = ap.bssid.toStdString();
+                    entry.ssid  = ap.ssid.toStdString();
+                    entry.type  = ap.type;
+                    entry.ch    = ap.channel;
+                    db_->addAp(entry);
+                    refreshAps();
+                });
+        connect(api_, &ApiClient::deleteAPSuccess,
+                this, [this](const QString&) { refreshAps(); });
+        connect(api_, &ApiClient::deleteAPFailed,
+                this, [this](const QString&, const QString& msg, bool) {
+                    LOG(WARNING) << "AdminPage: deleteAP failed " << msg.toStdString();
+                    QMessageBox::warning(this, "AP 삭제 실패", msg);
                 });
     }
 }
@@ -1363,12 +1397,16 @@ void AdminPage::onChangeApType() {
         LOG(WARNING) << "AdminPage::onChangeApType no row selected";
         return;
     }
-    std::string bssid   = apTable_->item(row, 0)->text().toStdString();
-    QString     curType = apTable_->item(row, 3)->text();
-    int         newType = (curType == "CA") ? 1 : 0;
-    LOG(INFO) << "AdminPage::onChangeApType bssid=" << bssid
-              << " CA->EA=" << (newType == 1);
-    db_->updateApType(bssid, newType);
+    QString bssidQ = apTable_->item(row, 0)->text();
+    QString ssid = apTable_->item(row, 1)->text();
+    int ch = apTable_->item(row, 2)->text().toInt();
+    QString curType = apTable_->item(row, 3)->text();
+    int newType = (curType == "CA") ? 1 : 0;
+    LOG(INFO) << "AdminPage::onChangeApType bssid=" << bssidQ.toStdString();
+
+    db_->updateApType(bssidQ.toStdString(), newType);
+    if (api_)
+      api_->updateAP(bssidQ, newType, ssid, ch);
     refreshAps();
 }
 
@@ -1384,6 +1422,8 @@ void AdminPage::onRemoveAp() {
     if (btn != QMessageBox::Yes) return;
     LOG(INFO) << "AdminPage::onRemoveAp bssid=" << bssid.toStdString();
     db_->removeAp(bssid.toStdString());
+    if (api_)
+        api_->deleteAP(bssid);
     refreshAps();
 }
 
@@ -2182,15 +2222,12 @@ void KioskWindow::updateDeviceCount(int count) {
 void KioskWindow::onApListFetched(QVector<ApRecord> aps) {
     LOG(INFO) << "KioskWindow::onApListFetched count=" << aps.size();
     for (const ApRecord& ap : aps) {
-        std::string bssidStr = ap.bssid.toStdString();
-        if (!db_->apExists(bssidStr)) {
-            ApEntry entry;
-            entry.bssid = bssidStr;
-            entry.ssid  = ap.ssid.toStdString();
-            entry.type  = ap.type;
-            entry.ch    = ap.channel;
-            db_->addAp(entry);
-        }
+        ApEntry entry;
+        entry.bssid = ap.bssid.toStdString();
+        entry.ssid  = ap.ssid.toStdString();
+        entry.type  = ap.type;
+        entry.ch    = ap.channel;
+        db_->addAp(entry);
     }
 }
 

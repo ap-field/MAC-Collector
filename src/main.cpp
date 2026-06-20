@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
     if (kApiBaseUrl.isEmpty()) {
         LOG(ERROR) << "MACCOLLECTOR_API_URL is empty: REST backend required, aborting";
         QMessageBox::critical(nullptr, "설정 오류",
-                              "API URL (MACCOLLECTOR_API_KEY)가 비어 있습니다.\n"
+                              "API URL (MACCOLLECTOR_API_URL)가 비어 있습니다.\n"
                               "서버 연동이 필요하여 프로그램을 종료합니다.");
         return 3;
     }

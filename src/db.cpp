@@ -532,7 +532,7 @@ bool Db::addAp(const ApEntry& ap) {
     }
     const char* sql =
         "INSERT INTO ap(bssid, type, ssid, ch) VALUES(?1,?2,?3,?4) "
-        "ON CONFLICT(bssid) DO NOTHING;";
+        "ON CONFLICT(bssid) DO UPDATE SET type=excluded.type, ssid=excluded.ssid, ch=excluded.ch;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         LOG(ERROR) << "Db::addAp prepare failed: " << sqlite3_errmsg(db_);
