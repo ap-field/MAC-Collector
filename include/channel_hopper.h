@@ -67,6 +67,7 @@ private:
     std::string               iface_;
     ChannelHopConfig          config_;
     std::vector<int>          schedule_;    // 실제 방문 순서(가중 반영). config_.channels 로부터 1회 생성.
+    int                       lastChannel_{-1};  // 직전에 실제로 맞춘 채널 — 값이 바뀔 때만 INFO 로그(호퍼 스레드 전용).
     std::atomic<int>*         currentChannel_;
     std::atomic<bool>*        bursting_;
     std::thread               worker_;

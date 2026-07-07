@@ -67,6 +67,11 @@ bool Mac::isNull() const {
     return true;
 }
 
+// 랜덤 MAC = locally-administered 비트(첫 옥텟 bit1) → 첫 옥텟 하위니블 2/6/A/E.
+bool Mac::isRandom() const {
+    return (mac_[0] & 0b11) == 0b10;
+}
+
 std::string Mac::toString() const {
     char buf[18];
     std::snprintf(buf, sizeof(buf),

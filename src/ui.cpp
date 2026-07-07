@@ -556,6 +556,25 @@ void Phase1Widget::addCandidate(const QString& macStr, int rssi,
     table_->setItem(row, 1, mkItem(QString("%1 dBm").arg(rssi)));
     table_->setItem(row, 2, mkItem(timestamp));
 
+    // 랜덤(로컬 관리) MAC 은 수집·표시는 하되 서버 등록은 막는다.
+    // 등록 버튼 대신 비활성 안내 라벨을 표시한다.
+    if (Mac(macStr.toUtf8().constData()).isRandom()) {
+        auto* randLabel = new QLabel("랜덤 MAC (등록 불가)");
+        randLabel->setAlignment(Qt::AlignCenter);
+        randLabel->setStyleSheet(
+            "QLabel { color: #6B7280; background: #F3F4F6;"
+            "  border-radius: 6px; padding: 6px 12px;"
+            "  font-size: 9pt; font-weight: 600; }");
+        table_->setCellWidget(row, 3, randLabel);
+        table_->ensurePolished();
+        for (int i = 0; i < 3; ++i)
+            table_->resizeColumnToContents(i);
+        LOG(INFO) << "Phase1Widget::addCandidate random MAC, registration disabled mac="
+                  << macStr.toStdString();
+        emit candidateCountChanged(table_->rowCount());
+        return;
+    }
+
     auto* regBtn = new QPushButton("등록");
     regBtn->setProperty("macStr",    macStr);
     regBtn->setProperty("timestamp", timestamp);
@@ -1557,6 +1576,10 @@ KioskWindow::KioskWindow(Db* db, ApiClient* api, QWidget* parent)
                 this, &KioskWindow::onApListFetched);
         connect(api_, &ApiClient::apListFailed,
                 this, &KioskWindow::onApListFailed);
+        connect(api_, &ApiClient::registerAPsSuccess,
+                this, &KioskWindow::onApRegisterBeforeDevice);
+        connect(api_, &ApiClient::registerAPsFailed,
+                this, &KioskWindow::onApRegisterForDeviceFailed);
         LOG(INFO) << "KioskWindow: ApiClient signals connected";
     } else {
         LOG(WARNING) << "KioskWindow: no ApiClient injected, running local-DB only";
@@ -1749,6 +1772,12 @@ void KioskWindow::goPhase1() {
 void KioskWindow::goPhase2Register(QString macStr, QString timestamp)
 {
     LOG(INFO) << "KioskWindow::goPhase2Register mac=" << macStr.toStdString();
+    // 방어: 랜덤 MAC 은 수집만 하고 등록은 허용하지 않는다.
+    if (Mac(macStr.toUtf8().constData()).isRandom()) {
+        LOG(WARNING) << "KioskWindow::goPhase2Register blocked random MAC mac="
+                     << macStr.toStdString();
+        return;
+    }
     isUpdateMode_     = false;
     pendingMac_       = macStr;
     pendingTimestamp_ = timestamp;
@@ -1873,13 +1902,20 @@ void KioskWindow::onPhase2Confirmed(QString macStr, QString name,
         // 이 흐름의 응답만 commitConfirmed 로 이어지도록 플래그를 세운다.
         awaitingApiCommit_ = true;
         scanStatusLabel_->setText("⏳ 서버 전송 중...");
+
         if (isUpdateMode_) {
             LOG(INFO) << "onPhase2Confirmed -> ApiClient::updateDevice mac=" << macStr.toStdString();
-            api_->updateDevice(macStr, name, phoneNum, typeCode, now);
+            api_->updateDevice(macStr, name, phoneNum, typeCode, now);   // ← 원상 복구
         } else {
             LOG(INFO) << "onPhase2Confirmed -> ApiClient::registerDevice mac=" << macStr.toStdString();
-            api_->registerDevice(macStr, name, phoneNum, typeCode, pendingRssi_, now, pendingBssid_);
+            if (!pendingBssid_.isEmpty() && !db_->apExists(pendingBssid_.toStdString())) {
+                awaitingApBeforeDevice_ = true;
+                api_->registerAPs(pendingBssid_, 0, pendingSsid_, pendingCh_);
+            } else {
+                api_->registerDevice(macStr, name, phoneNum, typeCode, pendingRssi_, now, pendingBssid_);
+            }
         }
+
         return;  // 응답 대기
     }
 
@@ -1931,8 +1967,8 @@ void KioskWindow::commitConfirmed(bool offline) {
             ap.ch    = pendingCh_;
             ap.type  = 0;
             db_->addAp(ap);
-            if (api_)
-                api_->registerAPs(pendingBssid_, ap.type, pendingSsid_, pendingCh_);
+            // if (api_)
+            //     // api_->registerAPs(pendingBssid_, ap.type, pendingSsid_, pendingCh_);
         }
     }
 
@@ -2218,6 +2254,32 @@ void KioskWindow::updateDeviceCount(int count) {
     deviceCountLabel_->setText(QString("감지: %1 개").arg(count));
 }
 
+void KioskWindow::onApRegisterBeforeDevice() {
+    if (!awaitingApBeforeDevice_) return;
+    awaitingApBeforeDevice_ = false;
+
+    if (!pendingBssid_.isEmpty() && !db_->apExists(pendingBssid_.toStdString())) {
+        ApEntry ap;
+        ap.bssid = pendingBssid_.toStdString();
+        ap.ssid  = pendingSsid_.toStdString();
+        ap.ch    = pendingCh_;
+        ap.type  = 0;
+        db_->addAp(ap);
+    }
+    int typeCode = Db::typeStringToCode(pendingType_.toStdString());
+    QString now  = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
+    api_->registerDevice(pendingMac_, pendingName_, pendingPhone_,
+                         typeCode, pendingRssi_, now, pendingBssid_);
+}
+
+void KioskWindow::onApRegisterForDeviceFailed() {
+    if (!awaitingApBeforeDevice_) return;
+    awaitingApBeforeDevice_ = false;
+    awaitingApiCommit_ = false;
+    scanStatusLabel_->setText("🟢 수집 중...");
+    QMessageBox::warning(this, "AP 등록 실패",
+                         "AP를 서버에 등록하지 못해 기기 등록을 진행할 수 없습니다.");
+}
 
 void KioskWindow::onApListFetched(QVector<ApRecord> aps) {
     LOG(INFO) << "KioskWindow::onApListFetched count=" << aps.size();

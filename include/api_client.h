@@ -88,6 +88,7 @@ signals:
     void registerAPsSuccess();
     void registerAPsFailed();
 
+
     void apListFetched(QVector<ApRecord> aps);
     void apListFailed(QString reason);
 

@@ -20,6 +20,9 @@ public:
 
     bool isNull() const;
 
+    // 랜덤 MAC = locally-administered 비트(첫 옥텟 bit1) → 첫 옥텟 하위니블 2/6/A/E.
+    bool isRandom() const;
+
     const uint8_t* data() const { return mac_; }
 
     std::string toString() const;

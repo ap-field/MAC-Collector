@@ -222,6 +222,8 @@ public slots:
     void onDeleteFailed(QString mac, QString reason, bool networkError);
     void onDeviceListFetched(QVector<DeviceRecord> devices);
     void onDeviceListFailed(QString reason);
+    void onApRegisterBeforeDevice();
+    void onApRegisterForDeviceFailed();
     void onApListFetched(QVector<ApRecord> aps);
     void onApListFailed(QString reason);
 
@@ -268,6 +270,7 @@ private:
     // Phase2 흐름에서 보낸 API 요청만 commitConfirmed 를 타야 한다. AdminPage 수정은
     // 같은 ApiClient 시그널을 공유하지만 이미 DB 에 직접 썼으므로 commit 대상이 아니다.
     bool    awaitingApiCommit_ = false;
+    bool    awaitingApBeforeDevice_ = false;
     QString pendingMac_;
     QString pendingTimestamp_;
     int     pendingRssi_      = 0;
