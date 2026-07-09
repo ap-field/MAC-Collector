@@ -72,6 +72,11 @@ bool Mac::isRandom() const {
     return (mac_[0] & 0b11) == 0b10;
 }
 
+// group(멀티캐스트/브로드캐스트) 주소 = 첫 옥텟 I/G 비트(bit0).
+bool Mac::isGroup() const {
+    return (mac_[0] & 0x01) != 0;
+}
+
 std::string Mac::toString() const {
     char buf[18];
     std::snprintf(buf, sizeof(buf),

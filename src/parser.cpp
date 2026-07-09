@@ -100,6 +100,8 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
     Mac frameMac(hdr.addr2);
     QString macStr = QString::fromStdString(frameMac.toString());
 
+    Mac staMac, apBssid;
+
     if (type == Dot11::TYPE_MGT) {
         const char* subtypeName =
             (subtype == Dot11::SUBTYPE_AUTH)        ? "auth" :
@@ -119,37 +121,56 @@ Parser::Result Parser::parse(const uint8_t* data, int len) const
         } else {
             return r;
         }
+
+        // 관리 프레임의 BSSID = addr3. 송신자(addr2)가 BSSID 와 같으면 AP 가 보낸
+        // 프레임이므로 STA 가 아니다 → 수집 제외. (auth 는 양방향이라 AP 응답도 잡힘)
+        if (frameMac == Mac(hdr.addr3)) {
+            DLOG(INFO) << "[PARSER] skip AP-sourced MGT (addr2==BSSID) mac="
+                       << macStr.toStdString();
+            return r;
+        }
+        staMac  = Mac(hdr.addr2);
+        apBssid = Mac(hdr.addr3);
+
     } else if (type == Dot11::TYPE_DATA) {
-        if (!toDs || fromDs) return r;
-        if (Dot11::isProtected(fc)) return r;
+        // QoS data 만 대상. Null/QoS-Null 은 페이로드가 없어 제외.
+        if (!Dot11::isQoS(fc))     return r;
+        if (Dot11::isNullData(fc)) return r;
 
-        int llcOff = rtLen + 24;
-        if (Dot11::isQoS(fc)) llcOff += 2;
-        if (len < llcOff + 8) return r;
-
-        if (data[llcOff]   != 0xAA ||
-            data[llcOff+1] != 0xAA ||
-            data[llcOff+2] != 0x03) return r;
-
-        uint16_t etype = (static_cast<uint16_t>(data[llcOff+6]) << 8) | data[llcOff+7];
-        if (etype != Dot11::ETHERTYPE_EAPOL) return r;
-
-        DLOG(INFO) << "[PARSER] EAPOL from=" << macStr.toStdString()
+        // ToDS/FromDS 조합으로 주소 의미가 바뀐다. BSSID 가 아닌 개별 주소가 STA.
+        if (toDs && !fromDs) {            // 업링크 STA→AP
+            staMac  = Mac(hdr.addr2);     // SA
+            apBssid = Mac(hdr.addr1);     // BSSID
+        } else if (!toDs && fromDs) {     // 다운링크 AP→STA
+            staMac  = Mac(hdr.addr1);     // DA(STA)
+            apBssid = Mac(hdr.addr2);     // BSSID
+        } else {
+            return r;                     // 00(IBSS) / 11(WDS) → 수집 대상 아님
+        }
+        r.kind = FrameKind::Data;
+        DLOG(INFO) << "[PARSER] QoS-DATA sta=" << staMac.toString()
+                   << " ap=" << apBssid.toString()
+                   << " ToDS=" << toDs << " FromDS=" << fromDs
                    << " RSSI=" << rssi;
-        r.kind = FrameKind::Eapol;
     } else {
         return r;
     }
 
-    r.ok    = true;
-    r.addr2 = frameMac;
-    r.rssi  = rssi;
-    r.apBssid = Mac(hdr.addr1);
+    // 멀티캐스트/브로드캐스트/널 주소는 실제 단말이 아니므로 제외 (특히 다운링크 addr1).
+    if (staMac.isGroup() || staMac.isNull()) {
+        DLOG(INFO) << "[PARSER] skip non-station STA mac=" << staMac.toString();
+        return r;
+    }
+
+    r.ok      = true;
+    r.staMac  = staMac;
+    r.rssi    = rssi;
+    r.apBssid = apBssid;
 
     const char* kindName =
         (r.kind == FrameKind::Auth)  ? "auth"  :
-        (r.kind == FrameKind::Assoc) ? "assoc" : "eapol";
-    LOG(INFO) << "Parser::parse accepted mac=" << frameMac.toString()
+        (r.kind == FrameKind::Assoc) ? "assoc" : "data";
+    LOG(INFO) << "Parser::parse accepted mac=" << staMac.toString()
               << " kind=" << kindName << " rssi=" << rssi;
     return r;
 }
@@ -160,7 +181,8 @@ Parser::BeaconInfo Parser::parseBeacon(const uint8_t* data, int len){
     uint16_t rtlen = 0;
     if (!extractRadiotap(data, len, &rssi, &rtlen))
         return info;
-    if (len < rtlen +24) return info;
+    if (len < rtlen +24)
+        return info;
 
     Dot11Header hdr;
     std::memcpy(&hdr, data + rtlen, sizeof(hdr));

@@ -23,6 +23,9 @@ public:
     // 랜덤 MAC = locally-administered 비트(첫 옥텟 bit1) → 첫 옥텟 하위니블 2/6/A/E.
     bool isRandom() const;
 
+    // group(멀티캐스트/브로드캐스트) 주소 = 첫 옥텟 I/G 비트(bit0). 실제 단말이 아님.
+    bool isGroup() const;
+
     const uint8_t* data() const { return mac_; }
 
     std::string toString() const;

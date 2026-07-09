@@ -158,19 +158,19 @@ void CaptureWorker::run() {
         if (!r.ok) continue;
 
         // 세션 내 중복 emit 방지. forgetSeen()(메인 스레드)과 동시 접근하므로 락으로 보호.
-        QString macStr = QString::fromStdString(r.addr2.toString());
+        QString macStr = QString::fromStdString(r.staMac.toString());
         {
             std::lock_guard<std::mutex> lk(seenMu_);
-            if (seenInSession_.find(r.addr2) != seenInSession_.end()) {
+            if (seenInSession_.find(r.staMac) != seenInSession_.end()) {
                 LOG(INFO) << "[CAPTURE] 중복 스킵: " << macStr.toStdString();
                 continue;
             }
-            seenInSession_.insert(r.addr2);
+            seenInSession_.insert(r.staMac);
         }
 
         const char* kindName =
             (r.kind == Parser::FrameKind::Auth)  ? "auth" :
-            (r.kind == Parser::FrameKind::Assoc) ? "assoc" : "eapol";//
+            (r.kind == Parser::FrameKind::Assoc) ? "assoc" : "data";//
         QString ts = QDateTime::currentDateTime().toString("yyMMdd'T'HHmmss");
 
         LOG(INFO) << "[CAPTURE] MAC 탐지: " << macStr.toStdString()
